@@ -1,21 +1,27 @@
 const fskService = require("../services/fskService");
+const { pool } = require("../config/database");
 
 const getHeaders = async (req, res) => {
   try {
     const { startDate, endDate } = req.query;
 
-    if (!startDate || !endDate) {
-      return res.status(400).json({ message: "Filter tanggal diperlukan." });
-    }
+    // 1. Ambil Kode Cabang RESMI dari tperusahaan (Agar sinkron F02)
+    const [perushRows] = await pool.query(
+      "SELECT perush_kode FROM tperusahaan LIMIT 1",
+    );
+    const branchCode = perushRows[0]?.perush_kode || "F01";
 
-    // Ambil kode cabang dari 3 digit awal user kode [cite: 2025-09-09]
-    const branchCode = req.user.kode.substring(0, 3);
+    // 2. Kirim branchCode ke service
+    const headers = await fskService.fetchHeaders(
+      startDate,
+      endDate,
+      branchCode, // <--- Ini yang tadi ketinggalan
+    );
 
-    const data = await fskService.fetchHeaders(startDate, endDate, branchCode);
-    res.json(data);
+    res.json(headers);
   } catch (error) {
     res.status(500).json({
-      message: "Gagal memuat data setoran kasir.",
+      message: "Gagal mengambil data browse FSK",
       error: error.message,
     });
   }

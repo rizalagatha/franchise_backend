@@ -3,11 +3,12 @@ const setoranService = require("../services/setoranPembayaranService");
 const getHeaders = async (req, res) => {
   try {
     const { startDate, endDate } = req.query;
-    const branchCode = req.user.kode.substring(0, 3); // Ambil dari user session [cite: 2025-09-09]
+    // HAPUS: const branchCode = req.user.kode.substring(0, 3);
+
     const data = await setoranService.fetchHeaders(
       startDate,
       endDate,
-      branchCode,
+      // branchCode tidak perlu dikirim lagi dari sini
     );
     res.json(data);
   } catch (error) {
@@ -61,10 +62,30 @@ const saveData = async (req, res) => {
   }
 };
 
+const getFormData = async (req, res) => {
+  try {
+    const data = await setoranService.fetchOneSetoran(req.params.nomor);
+    res.json(data);
+  } catch (error) {
+    res.status(404).json({ message: error.message });
+  }
+};
+
+const printData = async (req, res) => {
+  try {
+    const data = await setoranService.getPrintData(req.params.nomor);
+    res.json(data);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
 module.exports = {
   getHeaders,
   getDetails,
   removeData,
   getUnpaidInvoices,
   saveData,
+  getFormData,
+  printData,
 };

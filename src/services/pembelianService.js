@@ -18,7 +18,7 @@ const fetchHeaders = async (startDate, endDate) => {
             DATE_FORMAT(h.bpb_tanggal, '%d-%m-%Y') AS Tanggal,
             h.bpb_inv_nomor AS NoInvoice,
             DATE_FORMAT(h.bpb_inv_tanggal, '%d-%m-%Y') AS TglInvoice,
-            h.bpb_nominal AS 'Nominal Pembelian',
+            h.bpb_nominal AS NominalPembelian,
             h.bpb_ket AS Keterangan,
             h.user_create AS Created,
             h.user_modified AS Modified
@@ -70,7 +70,7 @@ const deletePembelian = async (nomorHeader) => {
     // 2. Hapus Header (tbpb_hdr)
     const [result] = await connection.query(
       "DELETE FROM tbpb_hdr WHERE bpb_nomor = ?",
-      [nomorHeader]
+      [nomorHeader],
     );
 
     if (result.affectedRows === 0) {
@@ -379,7 +379,7 @@ const lookupInvoice = async (nomorInvoice) => {
 
     if (rows.length === 0) {
       throw new Error(
-        `Invoice ${nomorInvoice} tidak ditemukan di server eksternal.`
+        `Invoice ${nomorInvoice} tidak ditemukan di server eksternal.`,
       );
     }
 

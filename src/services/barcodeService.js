@@ -54,7 +54,7 @@ const fetchDetails = async (nomorHeader) => {
   console.log(`--- [LOG: Browse] Query: ${query.substring(0, 150)}...`);
   const [rows] = await pool.query(query, [nomorHeader]);
   console.log(
-    `--- [LOG: Browse] Hasil: Ditemukan ${rows.length} baris detail.`
+    `--- [LOG: Browse] Hasil: Ditemukan ${rows.length} baris detail.`,
   );
   return rows;
 };
@@ -76,7 +76,7 @@ const deleteBarcode = async (nomorHeader) => {
     // 2. Hapus Header
     const [result] = await connection.query(
       "DELETE FROM tbarcode_hdr WHERE bch_nomor = ?",
-      [nomorHeader]
+      [nomorHeader],
     );
 
     if (result.affectedRows === 0) {
@@ -99,29 +99,42 @@ const deleteBarcode = async (nomorHeader) => {
  * Mengambil detail varian (kode, barcode, nama, ukuran, harga).
  * Mengadopsi pola searchProducts retail, disederhanakan untuk franchise.
  */
-const searchBarcodeLookupItems = async (term, page, itemsPerPage) => {
+const searchBarcodeLookupItems = async (
+  term,
+  page,
+  itemsPerPage,
+  cabangPrefix = "F03",
+) => {
   const offset = (page - 1) * itemsPerPage;
   const searchTermLike = term ? `%${term.trim()}%` : null;
 
-  // --- PERBAIKAN DI SINI ---
-  // Definisikan 'namaBarangField' HANYA menggunakan CONCAT_WS
   const namaBarangField = `
         TRIM(CONCAT_WS(' ', 
             a.brg_jeniskaos, a.brg_tipe, a.brg_lengan, 
             a.brg_jeniskain, a.brg_warna
         ))
     `;
-  // --- AKHIR PERBAIKAN ---
+
+  // Subquery untuk menghitung stok real-time per barang & ukuran
+  const stokSubQuery = `
+        LEFT JOIN (
+            SELECT mst_brg_kode, mst_ukuran, SUM(mst_stok_in - mst_stok_out) as saldo
+            FROM tmasterstok 
+            WHERE LEFT(mst_noreferensi, 3) = ? 
+            GROUP BY mst_brg_kode, mst_ukuran
+        ) s ON b.brgd_kode = s.mst_brg_kode AND b.brgd_ukuran = s.mst_ukuran
+    `;
 
   let fromClause = `
         FROM tbarang a 
         LEFT JOIN tbarang_dtl b ON a.brg_kode = b.brgd_kode
+        ${stokSubQuery}
     `;
+
   let whereClause = `WHERE b.brgd_kode IS NOT NULL`;
-  let params = [];
+  let params = [cabangPrefix]; // Params untuk stokSubQuery
 
   if (searchTermLike) {
-    // Gunakan 'namaBarangField' di WHERE clause
     whereClause += ` AND (
             a.brg_kode LIKE ? OR
             ${namaBarangField} LIKE ? OR 
@@ -130,21 +143,27 @@ const searchBarcodeLookupItems = async (term, page, itemsPerPage) => {
     params.push(searchTermLike, searchTermLike, searchTermLike);
   }
 
+  // Hitung Total
   const countQuery = `SELECT COUNT(*) as total ${fromClause} ${whereClause}`;
   const [countRows] = await pool.query(countQuery, params);
   const total = countRows[0].total;
 
+  // Ambil Data
   const dataQuery = `
         SELECT 
             a.brg_kode AS kode, 
             IFNULL(b.brgd_barcode, '') AS barcode,
-            ${namaBarangField} AS nama, IFNULL(b.brgd_ukuran, '') AS ukuran,
-            IFNULL(b.brgd_harga, 0) AS harga 
+            ${namaBarangField} AS nama, 
+            IFNULL(b.brgd_ukuran, '') AS ukuran,
+            IFNULL(b.brgd_harga, 0) AS harga,
+            IFNULL(b.brgd_hpp, 0) AS hpp,
+            IFNULL(s.saldo, 0) AS stok
         ${fromClause}
         ${whereClause}
         ORDER BY nama, b.brgd_ukuran
         LIMIT ? OFFSET ? 
     `;
+
   const dataParams = [...params, itemsPerPage, offset];
   const [items] = await pool.query(dataQuery, dataParams);
 
@@ -284,13 +303,13 @@ const loadFormData = async (nomorBarcode) => {
      `;
 
   console.log(
-    `--- [LOG: Edit Form] Query: ${detailQuery.substring(0, 150)}...`
+    `--- [LOG: Edit Form] Query: ${detailQuery.substring(0, 150)}...`,
   ); // Log query
 
   const [details] = await pool.query(detailQuery, [nomorBarcode]);
 
   console.log(
-    `--- [LOG: Edit Form] Hasil: Ditemukan ${details.length} baris detail.`
+    `--- [LOG: Edit Form] Hasil: Ditemukan ${details.length} baris detail.`,
   ); // Log hasil
 
   return { header, items: details };

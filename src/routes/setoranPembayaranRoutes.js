@@ -15,6 +15,16 @@ router.get(
   controller.getHeaders,
 );
 router.get(
+  "/:nomor/form-data",
+  [verifyToken, checkPermission(MENU_ID, "view")],
+  controller.getFormData, // Pastikan fungsi ini ada di controller Anda
+);
+router.get(
+  "/:nomor/print",
+  [verifyToken, checkPermission(MENU_ID, "view")],
+  controller.printData,
+);
+router.get(
   "/:nomor/details",
   [verifyToken, checkPermission(MENU_ID, "view")],
   controller.getDetails,

@@ -197,9 +197,19 @@ const saveInvoice = async (header, items, userKode, isNew) => {
   await connection.beginTransaction();
 
   try {
+    // 1. Ambil Kode Cabang dari tabel tperusahaan
+    const [perushRows] = await connection.query(
+      "SELECT perush_kode FROM tperusahaan LIMIT 1",
+    );
+
+    if (perushRows.length === 0) {
+      throw new Error("Data perusahaan (tperusahaan) belum diatur.");
+    }
+
+    // branchCode sekarang berisi "F02", bukan lagi "RIJ"
+    const branchCode = perushRows[0].perush_kode;
     const tgl = format(new Date(header.tanggal), "yyyy-MM-dd");
     const serverTime = format(new Date(), "yyyy-MM-dd HH:mm:ss");
-    const branchCode = userKode.substring(0, 3);
     const cAngsur = format(new Date(), "yyyyMMddHHmmssSSS"); // Simulasi yyymmddHHmmss.z
 
     // 1. Inisialisasi & Perhitungan (Logika Delphi)
@@ -209,6 +219,7 @@ const saveInvoice = async (header, items, userKode, isNew) => {
       0,
     );
     const bykirim = Number(header.biayaKirim || 0);
+    const rawBayarTunai = Number(header.rpTunai || 0);
     const nKembali = Number(header.kembalian || 0);
     const pundiAmal = Number(header.pundiAmal || 0);
     const diskonNominal = Number(header.diskonGlobal || 0);
@@ -219,9 +230,11 @@ const saveInvoice = async (header, items, userKode, isNew) => {
     let bayarTunai = Number(header.rpTunai || 0);
     const bayarCard = Number(header.rpCard || 0);
 
-    // Jika tunai > kembalian, kurangi nilai tunai yang masuk ke piutang
-    if (bayarTunai > nKembali && nKembali > 0) {
-      bayarTunai = bayarTunai - nKembali;
+    const bayarTunaiHeader = rawBayarTunai;
+
+    let bayarTunaiPiutang = rawBayarTunai;
+    if (bayarTunaiPiutang > nKembali && nKembali > 0) {
+      bayarTunaiPiutang = bayarTunaiPiutang - nKembali;
     }
 
     // 2. Logika No Setor Otomatis
@@ -244,7 +257,7 @@ const saveInvoice = async (header, items, userKode, isNew) => {
           header.kdCus,
           header.diskonGlobal,
           bykirim,
-          bayarTunai,
+          bayarTunaiHeader,
           bayarCard,
           header.noRek,
           noSetor,
@@ -304,10 +317,10 @@ const saveInvoice = async (header, items, userKode, isNew) => {
     }
 
     // Insert Piutang Detail: Pembayaran Tunai (Kredit)
-    if (bayarTunai !== 0) {
+    if (bayarTunaiPiutang !== 0) {
       await connection.query(
         `INSERT INTO tpiutang_dtl (pd_ph_nomor, pd_tanggal, pd_uraian, pd_kredit) VALUES (?, ?, 'BAYAR TUNAI', ?)`,
-        [phNomor, tgl, bayarTunai],
+        [phNomor, tgl, bayarTunaiPiutang],
       );
     }
 
@@ -354,17 +367,18 @@ const saveInvoice = async (header, items, userKode, isNew) => {
       nomorInv,
     ]);
     const detailValues = items.map((item, index) => [
-      nomorInv,
-      item.kode,
-      item.ukuran,
-      item.jumlah,
-      item.harga,
-      item.hpp || 0,
-      item.diskonNominal || 0,
-      item.diskonPersen || 0,
-      index + 1,
+      nomorInv, // 1. invd_inv_nomor
+      item.kode, // 2. invd_kode
+      item.ukuran, // 3. invd_ukuran
+      item.jumlah, // 4. invd_jumlah
+      item.harga, // 5. invd_harga
+      item.hpp || 0, // 6. invd_hpp (PASTIKAN di Vue namanya 'hpp')
+      0, // 7. invd_disc (Persen) - Set 0 dulu karena di Vue belum ada field %
+      item.diskon || 0, // 8. invd_diskon (Nominal) - Pakai item.diskon sesuai data dari Vue
+      index + 1, // 9. invd_nourut
     ]);
 
+    // Pastikan urutan kolom di INSERT match dengan urutan di atas!
     await connection.query(
       `INSERT INTO tinv_dtl (invd_inv_nomor, invd_kode, invd_ukuran, invd_jumlah, invd_harga, invd_hpp, invd_disc, invd_diskon, invd_nourut) 
        VALUES ?`,

@@ -100,7 +100,10 @@ const saveFSK = async (header, detail1, detail2, userKode, isNew) => {
 
   try {
     const tgl = format(new Date(header.fsk_tanggal), "yyyy-MM-dd");
-    const branchCode = userKode.substring(0, 3);
+    const [perushRows] = await connection.query(
+      "SELECT perush_kode FROM tperusahaan LIMIT 1",
+    );
+    const branchCode = perushRows[0]?.perush_kode || "F01";
     let nomorFSK = header.fsk_nomor;
 
     if (isNew) {
@@ -166,8 +169,15 @@ const saveFSK = async (header, detail1, detail2, userKode, isNew) => {
  * Menghasilkan Rekap Data Otomatis berdasarkan Tanggal dan Kasir
  * Sesuai prosedur loadnew di Delphi
  */
-const generateRekapData = async (tanggal, kasir, branchCode) => {
-  // 1. Cek apakah sudah ada data FSK tersimpan untuk tanggal & kasir ini
+const generateRekapData = async (tanggal, kasir) => {
+  // 1. Ambil Kode Cabang RESMI dari database (tperusahaan)
+  const [perush] = await pool.query(
+    "SELECT perush_kode FROM tperusahaan LIMIT 1",
+  );
+  const branchCode = perush[0]?.perush_kode || "F01";
+
+  // 2. Cek apakah sudah ada data FSK tersimpan untuk tanggal & kasir ini
+  // Sesuai logika Delphi: Jika sudah ada, nanti di frontend diarahkan ke Mode Edit
   const [existing] = await pool.query(
     `SELECT fsk_nomor FROM tform_setorkasir_hdr 
      WHERE fsk_tanggal = ? AND fsk_kasir = ? AND LEFT(fsk_nomor, 3) = ?`,
@@ -175,40 +185,49 @@ const generateRekapData = async (tanggal, kasir, branchCode) => {
   );
 
   // --- QUERY DETAIL 1: RINCIAN TRANSAKSI ---
-  // Query ini menggabungkan Setoran Kasir Tunai, Pembayaran Tunai, dan Transfer
+  // Kita pastikan filter Cabang menggunakan branchCode hasil query tperusahaan
   let queryDtl1 = `
     SELECT * FROM (
-      /* SETORAN KASIR TUNAI FROM INVOICE */
+      /* 1. SETORAN KASIR TUNAI (Dari Penjualan Langsung/Invoice) */
       SELECT 'SETORAN KASIR TUNAI' AS jenis, h.inv_tanggal AS tgltrf, h.inv_cus_kode AS kdcus, 
              c.cus_nama AS nmcus, c.cus_alamat AS alamat, h.inv_nomor AS inv, h.inv_rptunai AS nominal
       FROM tinv_hdr h
       LEFT JOIN tcustomer c ON c.cus_kode = h.inv_cus_kode
-      WHERE LEFT(h.inv_nomor, 3) = ? AND h.inv_rptunai <> 0 AND h.inv_tanggal = ?
-      ${kasir !== "ALL" ? "AND h.user_create = ?" : ""}
+      WHERE LEFT(h.inv_nomor, 3) = ? 
+        AND h.inv_rptunai <> 0 
+        AND h.inv_tanggal = ?
+        ${kasir !== "ALL" ? "AND h.user_create = ?" : ""}
 
       UNION ALL
 
-      /* PEMBAYARAN TUNAI FROM SETORAN HDR */
+      /* 2. PEMBAYARAN TUNAI (Dari Pelunasan Piutang - sh_jenis = 0) */
       SELECT 'PEMBAYARAN TUNAI' AS jenis, h.sh_tanggal AS tgltrf, h.sh_cus_kode AS kdcus, 
              c.cus_nama AS nmcus, c.cus_alamat AS alamat, 
              (SELECT sd_inv FROM tsetor_dtl WHERE sd_sh_nomor = h.sh_nomor LIMIT 1) AS inv, h.sh_nominal AS nominal
       FROM tsetor_hdr h
       LEFT JOIN tcustomer c ON c.cus_kode = h.sh_cus_kode
-      WHERE LEFT(h.sh_nomor, 3) = ? AND h.sh_jenis = 0 AND h.sh_tanggal = ?
-      ${kasir !== "ALL" ? "AND h.user_create = ?" : ""}
+      WHERE LEFT(h.sh_nomor, 3) = ? 
+        AND h.sh_jenis = 0 
+        AND h.sh_tanggal = ?
+        ${kasir !== "ALL" ? "AND h.user_create = ?" : ""}
 
       UNION ALL
 
-      /* PEMBAYARAN TRANSFER FROM SETORAN HDR */
+      /* 3. PEMBAYARAN TRANSFER (Dari Pelunasan Piutang - sh_jenis = 1) */
       SELECT 'PEMBAYARAN TRANSFER' AS jenis, h.sh_tgltransfer AS tgltrf, h.sh_cus_kode AS kdcus, 
              c.cus_nama AS nmcus, c.cus_alamat AS alamat, 
              (SELECT sd_inv FROM tsetor_dtl WHERE sd_sh_nomor = h.sh_nomor LIMIT 1) AS inv, h.sh_nominal AS nominal
       FROM tsetor_hdr h
       LEFT JOIN tcustomer c ON c.cus_kode = h.sh_cus_kode
-      WHERE LEFT(h.sh_nomor, 3) = ? AND h.sh_jenis = 1 AND h.sh_tanggal = ?
-      ${kasir !== "ALL" ? "AND h.user_create = ?" : ""}
+      WHERE LEFT(h.sh_nomor, 3) = ? 
+        AND h.sh_jenis = 1 
+        AND h.sh_tanggal = ?
+        ${kasir !== "ALL" ? "AND h.user_create = ?" : ""}
     ) x ORDER BY kdcus, inv`;
 
+  // Susun parameter berdasarkan kondisi Kasir (ALL atau User Tertentu)
+  // Jika ALL: 2 param per UNION (branch, tanggal) x 3 = 6 params
+  // Jika User: 3 param per UNION (branch, tanggal, kasir) x 3 = 9 params
   const paramsDtl1 =
     kasir === "ALL"
       ? [branchCode, tanggal, branchCode, tanggal, branchCode, tanggal]
@@ -224,9 +243,11 @@ const generateRekapData = async (tanggal, kasir, branchCode) => {
           kasir,
         ];
 
+  // Eksekusi Rincian Transaksi
   const [detail1] = await pool.query(queryDtl1, paramsDtl1);
 
-  // --- QUERY DETAIL 2: RINGKASAN JENIS ---
+  // --- QUERY DETAIL 2: RINGKASAN JENIS (Agregasi dari Query 1) ---
+  // Menggunakan subquery agar nominal yang muncul di "Ringkasan Jenis Setoran" otomatis akurat
   const [detail2] = await pool.query(
     `SELECT jenis, SUM(nominal) as nominal FROM (${queryDtl1}) summary GROUP BY jenis`,
     paramsDtl1,

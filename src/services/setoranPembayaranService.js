@@ -1,10 +1,70 @@
 const { pool } = require("../config/database");
 const { format } = require("date-fns");
 
+// utils/terbilang.js (Atau letakkan di bagian atas service Anda)
+const terbilang = (angka) => {
+  const bilangan = [
+    "",
+    "SATU",
+    "DUA",
+    "TIGA",
+    "EMPAT",
+    "LIMA",
+    "ENAM",
+    "TUJUH",
+    "DELAPAN",
+    "SEMBILAN",
+    "SEPULUH",
+    "SEBELAS",
+  ];
+
+  if (angka < 12) return bilangan[angka];
+  if (angka < 20) return terbilang(angka - 10) + " BELAS";
+  if (angka < 100)
+    return (
+      terbilang(Math.floor(angka / 10)) + " PULUH " + terbilang(angka % 10)
+    );
+  if (angka < 200) return "SERATUS " + terbilang(angka - 100);
+  if (angka < 1000)
+    return (
+      terbilang(Math.floor(angka / 100)) + " RATUS " + terbilang(angka % 100)
+    );
+  if (angka < 2000) return "SERIBU " + terbilang(angka - 1000);
+  if (angka < 1000000)
+    return (
+      terbilang(Math.floor(angka / 1000)) + " RIBU " + terbilang(angka % 1000)
+    );
+  if (angka < 1000000000)
+    return (
+      terbilang(Math.floor(angka / 1000000)) +
+      " JUTA " +
+      terbilang(angka % 1000000)
+    );
+  if (angka < 1000000000000)
+    return (
+      terbilang(Math.floor(angka / 1000000000)) +
+      " MILYAR " +
+      terbilang(angka % 1000000000)
+    );
+  return "Angka terlalu besar";
+};
+
+// Pastikan menghapus spasi ganda di akhir
+const formatTerbilang = (angka) => {
+  if (angka === 0) return "NOL RUPIAH";
+  return terbilang(Math.floor(angka)).trim() + " RUPIAH";
+};
+
 /**
  * Mengambil Data Master (Header) Setoran Pembayaran
  */
-const fetchHeaders = async (startDate, endDate, branchCode) => {
+const fetchHeaders = async (startDate, endDate) => {
+  // 1. Ambil Kode Cabang RESMI
+  const [perushRows] = await pool.query(
+    "SELECT perush_kode FROM tperusahaan LIMIT 1",
+  );
+  const branchCode = perushRows[0]?.perush_kode || "F01";
+
   const query = `
     SELECT h.sh_nomor AS Nomor, h.sh_tanggal AS Tanggal, 
            IF(h.sh_jenis=0, "TUNAI", "TRANSFER") AS JenisBayar,
@@ -21,7 +81,7 @@ const fetchHeaders = async (startDate, endDate, branchCode) => {
     WHERE LEFT(h.sh_nomor, 3) = ? 
       AND h.sh_tanggal BETWEEN ? AND ?
     GROUP BY h.sh_nomor
-    ORDER BY h.sh_tanggal, h.sh_nomor
+    ORDER BY h.sh_tanggal DESC, h.sh_nomor DESC
   `;
   const [rows] = await pool.query(query, [branchCode, startDate, endDate]);
   return rows;
@@ -124,7 +184,10 @@ const saveSetoran = async (header, details, userKode, isNew) => {
 
   try {
     const tgl = format(new Date(header.sh_tanggal), "yyyy-MM-dd");
-    const branchCode = userKode.substring(0, 3);
+    const [perushRows] = await connection.query(
+      "SELECT perush_kode FROM tperusahaan LIMIT 1",
+    );
+    const branchCode = perushRows[0]?.perush_kode || "F01";
     let nomorSTR = header.sh_nomor;
 
     // 1. Handle Header
@@ -208,10 +271,94 @@ const saveSetoran = async (header, details, userKode, isNew) => {
   }
 };
 
+/**
+ * Mengambil data lengkap Setoran Pembayaran untuk form Edit
+ */
+const fetchOneSetoran = async (nomor) => {
+  // 1. Ambil Header beserta info Customer & Rekening
+  const [headerRows] = await pool.query(
+    `SELECT h.*, IF(h.sh_jenis=0,"TUNAI","TRANSFER") AS JenisBayar,
+            c.cus_nama, c.cus_alamat, c.cus_kota, c.cus_telp,
+            r.rek_namabank, DATE_FORMAT(h.sh_tanggal, '%Y-%m-%d') as sh_tanggal,
+            DATE_FORMAT(h.sh_tgltransfer, '%Y-%m-%d') as sh_tgltransfer,
+            DATE_FORMAT(h.date_create, '%d-%m-%Y %T') as created
+     FROM tsetor_hdr h
+     LEFT JOIN tcustomer c ON c.cus_kode = h.sh_cus_kode
+     LEFT JOIN trekening r ON r.rek_nomor = h.sh_norek
+     WHERE h.sh_nomor = ?`,
+    [nomor],
+  );
+
+  if (headerRows.length === 0) throw new Error("Data tidak ditemukan.");
+
+  // 2. Ambil Rincian Invoice yang dibayar (Detail)
+  const [detailRows] = await pool.query(
+    `SELECT d.sd_inv AS invoice, d.sd_bayar AS bayar, d.sd_ket AS ket, d.sd_angsur AS angsur,
+            p.ph_tanggal AS tanggal, p.ph_nominal AS nominal,
+            (SELECT SUM(pd_kredit) FROM tpiutang_dtl WHERE pd_ph_nomor = p.ph_nomor AND pd_ket != ?) AS terbayar_sebelumnya
+     FROM tsetor_dtl d
+     LEFT JOIN tpiutang_hdr p ON p.ph_inv_nomor = d.sd_inv
+     WHERE d.sd_sh_nomor = ?`,
+    [nomor, nomor],
+  );
+
+  // Map data ke format yang dimengerti frontend
+  const details = detailRows.map((d) => ({
+    ...d,
+    terbayar: Number(d.terbayar_sebelumnya || 0),
+    sisa_piutang: Number(d.nominal || 0) - Number(d.terbayar_sebelumnya || 0),
+    lunasi: false,
+    tglbayar: headerRows[0].sh_tanggal,
+  }));
+
+  return { header: headerRows[0], details };
+};
+
+/**
+ * Mengambil data khusus untuk Print Out Setoran
+ */
+const getPrintData = async (nomor) => {
+  // 1. Ambil Header
+  const [headerRows] = await pool.query(
+    `SELECT h.sh_nomor, DATE_FORMAT(h.sh_tanggal, '%Y-%m-%d') as sh_tanggal,
+            h.sh_cus_kode, c.cus_nama, c.cus_alamat, c.cus_telp,
+            h.sh_nominal, h.sh_ket,
+            DATE_FORMAT(h.date_create, '%d-%m-%Y %T') as created
+     FROM tsetor_hdr h
+     LEFT JOIN tcustomer c ON c.cus_kode = h.sh_cus_kode
+     WHERE h.sh_nomor = ?`,
+    [nomor],
+  );
+
+  if (headerRows.length === 0) throw new Error("Data setoran tidak ditemukan.");
+
+  const header = headerRows[0];
+
+  // Suntikkan terbilang ke header
+  // Gunakan fungsi formatTerbilang yang dibuat di atas
+  header.terbilang = formatTerbilang(header.sh_nominal);
+
+  // 2. Ambil Detail
+  const [detailRows] = await pool.query(
+    `SELECT d.sd_inv AS invoice, d.sd_bayar AS bayar, d.sd_ket AS ket
+     FROM tsetor_dtl d
+     WHERE d.sd_sh_nomor = ?
+     ORDER BY d.sd_nourut`,
+    [nomor],
+  );
+
+  return {
+    header,
+    details: detailRows,
+  };
+};
+
 module.exports = {
   fetchHeaders,
   fetchDetails,
   deleteSetoran,
   fetchUnpaidInvoices,
   saveSetoran,
+  fetchOneSetoran,
+  getPrintData,
 };
