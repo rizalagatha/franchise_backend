@@ -86,9 +86,15 @@ const getPendingActions = async (cabang) => {
 
 const getRecentTransactions = async (cabang) => {
   const [rows] = await pool.query(
-    `SELECT h.inv_nomor as id, c.cus_nama as customer, 
+    `SELECT h.inv_nomor as id, 
+            c.cus_nama as customer, 
             DATE_FORMAT(h.date_create, "%H:%i") as time, 
-            IFNULL(d.total, 0) as amount
+            IFNULL(d.total, 0) as amount,
+            CASE 
+              WHEN h.inv_rpcard > 0 THEN 'Transfer'
+              WHEN h.inv_rptunai > 0 THEN 'Tunai'
+              ELSE 'Piutang'
+            END as payment_type
      FROM tinv_hdr h
      LEFT JOIN tcustomer c ON h.inv_cus_kode = c.cus_kode
      LEFT JOIN (
