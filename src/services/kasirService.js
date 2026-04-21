@@ -334,14 +334,19 @@ const saveInvoice = async (header, items, userKode, isNew) => {
     if (bayarCard !== 0) {
       // Header Setoran
       await connection.query(
-        `INSERT INTO tsetor_hdr (sh_nomor, sh_cus_kode, sh_tanggal, sh_jenis, sh_nominal, sh_norek, sh_otomatis, user_create, date_create) 
-         VALUES (?, ?, ?, 1, ?, ?, 'Y', ?, ?)`,
+        `INSERT INTO tsetor_hdr (
+        sh_nomor, sh_cus_kode, sh_tanggal, sh_jenis, 
+        sh_nominal, sh_norek, sh_tgltransfer, sh_otomatis, 
+        user_create, date_create
+      ) 
+      VALUES (?, ?, ?, 1, ?, ?, ?, 'Y', ?, ?)`, // Tambahkan kolom sh_tgltransfer
         [
           noSetor,
           header.kdCus,
           tgl,
           bayarCard,
           header.noRek,
+          tgl, // Masukkan tgl (tanggal invoice) sebagai default tanggal transfer
           userKode,
           serverTime,
         ],

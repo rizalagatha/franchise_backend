@@ -1,9 +1,20 @@
 const { pool } = require("../config/database");
 
 /**
- * Mengambil data standar stok beserta stok real-time saat ini
+ * Mengambil data standar stok beserta stok real-time saat ini khusus untuk cabang/perusahaan aktif
  */
 const fetchStandartStok = async () => {
+  // 1. Ambil Kode Cabang Aktif dari tperusahaan
+  const [perushRows] = await pool.query(
+    "SELECT perush_kode FROM tperusahaan LIMIT 1",
+  );
+
+  if (perushRows.length === 0) {
+    throw new Error("Data perusahaan (tperusahaan) belum diatur.");
+  }
+  const branchPrefix = perushRows[0].perush_kode;
+
+  // 2. Query Utama (Filter Stok berdasarkan Prefix Cabang)
   const query = `
     SELECT 
         x.Kode,
@@ -18,6 +29,7 @@ const fetchStandartStok = async () => {
             WHERE m.mst_aktif = 'Y' 
               AND m.mst_brg_kode = x.Kode 
               AND m.mst_ukuran = x.Ukuran
+              AND m.mst_noreferensi LIKE CONCAT(?, '%') -- Filter berdasarkan cabang
         ), 0) AS Stok
     FROM (
         SELECT 
@@ -25,15 +37,16 @@ const fetchStandartStok = async () => {
             TRIM(CONCAT_WS(' ', a.brg_jeniskaos, a.brg_tipe, a.brg_lengan, a.brg_jeniskain, a.brg_warna)) AS Nama,
             b.brgd_ukuran AS Ukuran,
             b.brgd_barcode AS Barcode,
-            b.brgd_min AS MinBuffer,
-            b.brgd_max AS MaxBuffer
+            IFNULL(b.brgd_min, 0) AS MinBuffer,
+            IFNULL(b.brgd_max, 0) AS MaxBuffer
         FROM tbarang a
         LEFT JOIN tbarang_dtl b ON b.brgd_kode = a.brg_kode
+        WHERE b.brgd_kode IS NOT NULL
     ) x
     ORDER BY x.Nama, x.Barcode
   `;
 
-  const [rows] = await pool.query(query);
+  const [rows] = await pool.query(query, [branchPrefix]);
   return rows;
 };
 
@@ -72,7 +85,7 @@ const updateBuffer = async (kode, ukuran, minBuffer, maxBuffer) => {
   }
 
   return {
-    message: "Standart stok berhasil diperbarui",
+    message: "Standar stok berhasil diperbarui",
     kode,
     ukuran,
     xmin,

@@ -30,9 +30,22 @@ const getData = async (req, res) => {
 
 const getChart = async (req, res) => {
   try {
-    const cabang = req.user.kode.substring(0, 3);
-    const { start, end } = req.query;
-    const data = await service.getChartData(cabang, start, end);
+    // 1. Ambil kode cabang resmi dulu (Sama seperti getData)
+    const [perush] = await pool.query(
+      "SELECT perush_kode FROM tperusahaan LIMIT 1",
+    );
+
+    if (perush.length === 0)
+      return res.status(404).json({ message: "Setting perusahaan belum ada" });
+
+    const cabang = perush[0].perush_kode; // Pastikan pakai "F02" (atau sesuai DB)
+
+    // 2. Ambil parameter dari query string
+    const { start, end, groupBy } = req.query;
+
+    // 3. Panggil service (Jangan lupa kirim groupBy agar dashboard bisa filter hari/minggu/bulan)
+    const data = await service.getChartData(cabang, start, end, groupBy);
+
     res.json(data);
   } catch (error) {
     res.status(500).json({ message: error.message });

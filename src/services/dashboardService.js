@@ -38,23 +38,34 @@ const getStats = async (cabang, tanggal) => {
   };
 };
 
-const getChartData = async (cabang, start, end) => {
-  // Query grafik harian dengan kalkulasi nominal dari detail
+const getChartData = async (cabang, start, end, groupBy = "day") => {
+  // Tambah param groupBy
+  const startDate = start + " 00:00:00";
+  const endDate = end + " 23:59:59";
+
+  // Tentukan format grouping berdasarkan klik user
+  let dateFormat = "%Y-%m-%d";
+  if (groupBy === "week") dateFormat = "%Y-%u"; // Berdasarkan Minggu ke-berapa
+  if (groupBy === "month") dateFormat = "%Y-%m";
+
   const [rows] = await pool.query(
     `SELECT 
-        h.inv_tanggal as tanggal, 
-        SUM(d.subtotal - h.inv_disc) as total 
+        DATE_FORMAT(h.inv_tanggal, '${dateFormat}') as tanggal, 
+        IFNULL(SUM(d.subtotal - IFNULL(h.inv_disc, 0)), 0) as total 
      FROM tinv_hdr h
-     INNER JOIN (
+     LEFT JOIN (
         SELECT invd_inv_nomor, SUM(invd_jumlah * (invd_harga - invd_diskon)) as subtotal
         FROM tinv_dtl
         GROUP BY invd_inv_nomor
      ) d ON h.inv_nomor = d.invd_inv_nomor
-     WHERE LEFT(h.inv_nomor, 3) = ? AND h.inv_tanggal BETWEEN ? AND ?
-     GROUP BY h.inv_tanggal 
-     ORDER BY h.inv_tanggal ASC`,
-    [cabang, start, end],
+     WHERE LEFT(h.inv_nomor, 3) = ? 
+       AND h.inv_tanggal >= ? 
+       AND h.inv_tanggal <= ?
+     GROUP BY tanggal 
+     ORDER BY tanggal ASC`,
+    [cabang, startDate, endDate],
   );
+
   return rows;
 };
 

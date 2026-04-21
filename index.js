@@ -22,6 +22,7 @@ const laporanStokRoutes = require("./src/routes/laporanStokRoutes");
 const laporanPenjualanRoutes = require("./src/routes/laporanPenjualanRoutes");
 const perusahaanRoutes = require("./src/routes/perusahaanRoutes");
 const dashboardRoutes = require("./src/routes/dashboardRoutes");
+const mintaBarangRoutes = require("./src/routes/mintaBarangRoutes");
 
 const app = express();
 // Gunakan port dari .env, atau fallback ke 5001
@@ -59,6 +60,7 @@ app.use("/api/laporan-stok", laporanStokRoutes);
 app.use("/api/laporan-penjualan", laporanPenjualanRoutes);
 app.use("/api/perusahaan", perusahaanRoutes);
 app.use("/api/dashboard", dashboardRoutes);
+app.use("/api/minta-barang-kaosan", mintaBarangRoutes);
 
 app.get("/", (req, res) => {
   res.send("Franchise Backend (JS) running!");

@@ -95,18 +95,18 @@ const deleteBarcode = async (nomorHeader) => {
 };
 
 /**
- * Mencari barang untuk lookup F1 dengan server-side pagination & search.
- * Mengambil detail varian (kode, barcode, nama, ukuran, harga).
- * Mengadopsi pola searchProducts retail, disederhanakan untuk franchise.
+ * Mencari barang untuk lookup F1 dengan stok sesuai tperusahaan
  */
-const searchBarcodeLookupItems = async (
-  term,
-  page,
-  itemsPerPage,
-  cabangPrefix = "F03",
-) => {
+const searchBarcodeLookupItems = async (term, page, itemsPerPage) => {
   const offset = (page - 1) * itemsPerPage;
   const searchTermLike = term ? `%${term.trim()}%` : null;
+
+  // 1. Ambil Kode Cabang Aktif dari tperusahaan
+  const [perushRows] = await pool.query(
+    "SELECT perush_kode FROM tperusahaan LIMIT 1",
+  );
+  if (perushRows.length === 0) throw new Error("Data perusahaan belum diatur.");
+  const branchPrefix = perushRows[0].perush_kode;
 
   const namaBarangField = `
         TRIM(CONCAT_WS(' ', 
@@ -115,12 +115,12 @@ const searchBarcodeLookupItems = async (
         ))
     `;
 
-  // Subquery untuk menghitung stok real-time per barang & ukuran
+  // Subquery Stok: Filter berdasarkan prefix Cabang Aktif
   const stokSubQuery = `
         LEFT JOIN (
             SELECT mst_brg_kode, mst_ukuran, SUM(mst_stok_in - mst_stok_out) as saldo
             FROM tmasterstok 
-            WHERE LEFT(mst_noreferensi, 3) = ? 
+            WHERE mst_noreferensi LIKE CONCAT(?, '%') 
             GROUP BY mst_brg_kode, mst_ukuran
         ) s ON b.brgd_kode = s.mst_brg_kode AND b.brgd_ukuran = s.mst_ukuran
     `;
@@ -132,7 +132,7 @@ const searchBarcodeLookupItems = async (
     `;
 
   let whereClause = `WHERE b.brgd_kode IS NOT NULL`;
-  let params = [cabangPrefix]; // Params untuk stokSubQuery
+  let params = [branchPrefix];
 
   if (searchTermLike) {
     whereClause += ` AND (
@@ -143,12 +143,10 @@ const searchBarcodeLookupItems = async (
     params.push(searchTermLike, searchTermLike, searchTermLike);
   }
 
-  // Hitung Total
   const countQuery = `SELECT COUNT(*) as total ${fromClause} ${whereClause}`;
   const [countRows] = await pool.query(countQuery, params);
   const total = countRows[0].total;
 
-  // Ambil Data
   const dataQuery = `
         SELECT 
             a.brg_kode AS kode, 

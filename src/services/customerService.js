@@ -2,10 +2,8 @@ const { pool } = require("../config/database");
 
 /**
  * Mengambil semua data customer untuk browse.
- * Mengambil kolom sesuai referensi Delphi.
  */
 const fetchAllCustomers = async () => {
-  // Query disesuaikan dari Delphi: TfrmBrowCus.btnRefreshClick
   const query = `
         SELECT 
             c.cus_kode AS Kode,
@@ -20,8 +18,6 @@ const fetchAllCustomers = async () => {
         FROM tcustomer c
         ORDER BY c.cus_kode ASC 
     `;
-  // Tambahkan ORDER BY agar konsisten
-
   const [rows] = await pool.query(query);
   return rows;
 };
@@ -35,19 +31,24 @@ const getCustomerById = async (customerCode) => {
   if (rows.length === 0) {
     throw new Error("Customer tidak ditemukan.");
   }
-  // Sesuaikan nama field jika perlu (misal: cus_nama_kontak -> namaKontak)
-  // Untuk konsistensi, kita biarkan nama field database
   return rows[0];
 };
 
 /**
- * Membuat customer baru.
- * Akan men-generate kode customer baru.
+ * Membuat customer baru dengan prefix dari tperusahaan
  */
 const createCustomer = async (customerData, userKode) => {
-  // 1. Generate Kode Baru (Logika dari Delphi getnomor)
-  // Asumsi userKode (dari token) mengandung kode cabang di 3 char pertama
-  const branchCode = userKode.substring(0, 3);
+  // 1. Ambil Kode Cabang Aktif dari tperusahaan
+  const [perushRows] = await pool.query(
+    "SELECT perush_kode FROM tperusahaan LIMIT 1",
+  );
+
+  if (perushRows.length === 0) {
+    throw new Error("Data perusahaan (tperusahaan) belum diatur.");
+  }
+  const branchCode = perushRows[0].perush_kode; // Mengambil prefix (misal: F02)
+
+  // 2. Generate Nomor Urut berdasarkan branchCode tersebut
   const nomorQuery = `
         SELECT IFNULL(MAX(RIGHT(cus_kode, 5)), 0) AS lastNum 
         FROM tcustomer 
@@ -57,7 +58,7 @@ const createCustomer = async (customerData, userKode) => {
   const nextNum = parseInt(nomorRows[0].lastNum, 10) + 1;
   const newCustomerCode = `${branchCode}${String(nextNum).padStart(5, "0")}`;
 
-  // 2. Persiapan data insert (sesuai kolom Delphi)
+  // 3. Persiapan data insert
   const {
     cus_nama,
     cus_alamat,
@@ -67,7 +68,6 @@ const createCustomer = async (customerData, userKode) => {
     cus_aktif,
   } = customerData;
 
-  // Validasi dasar (meski frontend juga validasi)
   if (
     !cus_nama?.trim() ||
     !cus_alamat?.trim() ||
@@ -76,7 +76,7 @@ const createCustomer = async (customerData, userKode) => {
     !cus_nama_kontak?.trim()
   ) {
     throw new Error(
-      "Data tidak lengkap. Pastikan Nama, Alamat, Kota, Telp, dan Kontak Person terisi."
+      "Data tidak lengkap. Pastikan Nama, Alamat, Kota, Telp, dan Kontak Person terisi.",
     );
   }
 
@@ -88,19 +88,17 @@ const createCustomer = async (customerData, userKode) => {
 
   const values = [
     newCustomerCode,
-    cus_nama, // Gunakan cus_nama
-    cus_alamat, // Gunakan cus_alamat
-    cus_kota, // Gunakan cus_kota
-    cus_telp, // Gunakan cus_telp
-    cus_nama_kontak, // Gunakan cus_nama_kontak
+    cus_nama,
+    cus_alamat,
+    cus_kota,
+    cus_telp,
+    cus_nama_kontak,
     cus_aktif || "Y",
-    userKode,
+    userKode, // user_create tetap menggunakan ID orang yang login
   ];
 
-  // 3. Eksekusi Insert
   await pool.query(insertQuery, values);
 
-  // 4. Kembalikan kode baru
   return {
     kode: newCustomerCode,
     message: `Customer ${cus_nama} berhasil dibuat.`,
@@ -108,7 +106,7 @@ const createCustomer = async (customerData, userKode) => {
 };
 
 /**
- * Memperbarui data customer yang ada.
+ * Memperbarui data customer
  */
 const updateCustomer = async (customerCode, customerData, userKode) => {
   const {
@@ -120,7 +118,6 @@ const updateCustomer = async (customerCode, customerData, userKode) => {
     cus_aktif,
   } = customerData;
 
-  // Validasi dasar
   if (
     !cus_nama?.trim() ||
     !cus_alamat?.trim() ||
@@ -128,9 +125,7 @@ const updateCustomer = async (customerCode, customerData, userKode) => {
     !cus_telp?.trim() ||
     !cus_nama_kontak?.trim()
   ) {
-    throw new Error(
-      "Data tidak lengkap. Pastikan Nama, Alamat, Kota, Telp, dan Kontak Person terisi."
-    );
+    throw new Error("Data tidak lengkap.");
   }
 
   const updateQuery = `
@@ -147,21 +142,20 @@ const updateCustomer = async (customerCode, customerData, userKode) => {
   `;
 
   const values = [
-    cus_nama, // Gunakan cus_nama
-    cus_alamat, // Gunakan cus_alamat
-    cus_kota, // Gunakan cus_kota
-    cus_telp, // Gunakan cus_telp
-    cus_nama_kontak, // Gunakan cus_nama_kontak
+    cus_nama,
+    cus_alamat,
+    cus_kota,
+    cus_telp,
+    cus_nama_kontak,
     cus_aktif || "Y",
     userKode,
     customerCode,
   ];
 
-  // Eksekusi Update
   const [result] = await pool.query(updateQuery, values);
 
   if (result.affectedRows === 0) {
-    throw new Error("Customer tidak ditemukan atau data tidak berubah.");
+    throw new Error("Customer tidak ditemukan atau tidak ada perubahan.");
   }
 
   return { message: `Customer ${cus_nama} berhasil diperbarui.` };
