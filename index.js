@@ -28,7 +28,34 @@ const app = express();
 // Gunakan port dari .env, atau fallback ke 5001
 const port = process.env.PORT || 5001;
 
-app.use(cors());
+// ==========================================
+// PENGATURAN CORS WHITELIST
+// ==========================================
+const whitelist = [
+  "http://localhost:3000", // Untuk testing Vue/Nuxt di lokal
+  "http://localhost:5173", // Untuk testing Vite di lokal
+  "https://priority.kaosanofficial.com", // GANTI dengan domain frontend asli Mas Rizal nanti
+  "https://www.priority.kaosanofficial.com", // Tambahkan variasi www jika perlu
+];
+
+const corsOptions = {
+  origin: function (origin, callback) {
+    // Izinkan request jika origin ada di whitelist,
+    // ATAU jika !origin (biasanya request dari Postman/Insomnia/Mobile App)
+    if (!origin || whitelist.indexOf(origin) !== -1) {
+      callback(null, true);
+    } else {
+      console.log(`[CORS Blocked] Origin tidak diizinkan: ${origin}`); // Biar kelihatan di log hostinger kalau ada yg ditolak
+      callback(new Error("Not allowed by CORS"));
+    }
+  },
+  credentials: true, // Opsional: Aktifkan jika frontend mengirim cookies/session
+};
+
+// Gunakan konfigurasi CORS yang baru
+app.use(cors(corsOptions));
+// ==========================================
+
 app.use(express.json());
 app.disable("etag"); // matikan ETag global
 
