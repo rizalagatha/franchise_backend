@@ -92,27 +92,38 @@ const saveUser = async (cabangId, data, isNew) => {
     const { Kode, Nama, Password, Role, hakAkses } = data;
 
     if (isNew) {
-      // Cek duplikasi di seluruh sistem (Master)
+      // 1. Cek duplikasi username
       const [exist] = await conn.query(
         "SELECT 1 FROM users WHERE username = ?",
         [Kode],
       );
       if (exist.length > 0) throw new Error("Username sudah digunakan.");
 
-      // Insert ke tabel Master 'users'
-      // Cabang_id dipaksa menggunakan ID cabang milik Admin yang sedang login
+      // 2. HASH PASSWORD sebelum disimpan
+      const salt = await bcrypt.genSalt(10);
+      const hashedPassword = await bcrypt.hash(Password, salt);
+
+      // 3. Insert ke tabel Master 'users' dengan password yang sudah di-hash
       await conn.query(
         "INSERT INTO users (username, password, role, cabang_id) VALUES (?, ?, ?, ?)",
-        [Kode, Password, Role || "user", cabangId],
+        [Kode, hashedPassword, Role || "user", cabangId],
       );
     } else {
-      // Update data (Password hanya jika diisi)
+      // Logika Update
       if (Password && Password.trim() !== "") {
+        // Jika ganti password saat edit, hash dulu password barunya
+        const salt = await bcrypt.genSalt(10);
+        const hashedPassword = await bcrypt.hash(Password, salt);
+
+        await conn.query(
+          "UPDATE users SET password = ?, role = ? WHERE username = ? AND cabang_id = ?",
+          [hashedPassword, Role, Kode, cabangId],
+        );
+      } else {
         await conn.query(
           "UPDATE users SET role = ? WHERE username = ? AND cabang_id = ?",
           [Role, Kode, cabangId],
         );
-        // Implementasi update password terpisah atau gabung sesuai kebutuhan
       }
     }
 
