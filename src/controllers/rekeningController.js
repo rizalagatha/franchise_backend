@@ -5,7 +5,7 @@ const rekeningService = require("../services/rekeningService");
  */
 const getHeaders = async (req, res) => {
   try {
-    const headers = await rekeningService.fetchHeaders();
+    const headers = await rekeningService.fetchHeaders(req.db);
     res.json(headers);
   } catch (error) {
     res
@@ -20,7 +20,7 @@ const getHeaders = async (req, res) => {
 const deleteRekeningData = async (req, res) => {
   try {
     const { nomor } = req.params;
-    const result = await rekeningService.deleteRekening(nomor);
+    const result = await rekeningService.deleteRekening(req.db, nomor);
     res.json(result);
   } catch (error) {
     if (error.message === "No Rekening tidak ditemukan.") {
@@ -34,13 +34,13 @@ const deleteRekeningData = async (req, res) => {
 };
 
 /**
- * (BARU) Mengambil detail satu rekening untuk form dialog.
+ * Mengambil detail satu rekening untuk form dialog.
  * Dipakai saat blur field No. Rekening atau saat klik Ubah.
  */
 const getRekening = async (req, res) => {
   try {
     const { nomor } = req.params;
-    const data = await rekeningService.getRekeningById(nomor);
+    const data = await rekeningService.getRekeningById(req.db, nomor);
     // Kirim null jika tidak ada (untuk mode 'Baru'), bukan error 404
     res.status(200).json(data);
   } catch (e) {
@@ -49,14 +49,14 @@ const getRekening = async (req, res) => {
 };
 
 /**
- * (BARU) Menyimpan data (Create/Update).
+ * Menyimpan data (Create/Update).
  * Dipakai oleh dialog simpan.
  */
 const saveData = async (req, res) => {
   try {
     // 'data' adalah object { rek_nomor, ... }, 'isNew' adalah boolean
     const { data, isNew } = req.body;
-    const result = await rekeningService.saveRekening(data, isNew);
+    const result = await rekeningService.saveRekening(req.db, data, isNew);
     res.status(isNew ? 201 : 200).json(result);
   } catch (error) {
     // Kirim 400 jika error validasi (misal: "No. Rekening kosong")
@@ -65,7 +65,7 @@ const saveData = async (req, res) => {
 };
 
 /**
- * (BARU) Lookup F1 untuk dialog form.
+ * Lookup F1 untuk dialog form.
  */
 const lookup = async (req, res) => {
   try {
@@ -81,9 +81,10 @@ const lookup = async (req, res) => {
     }
 
     const result = await rekeningService.lookupRekeningF1(
+      req.db,
       term,
       pageNum,
-      limitNum
+      limitNum,
     );
     res.json(result);
   } catch (error) {
@@ -91,12 +92,10 @@ const lookup = async (req, res) => {
   }
 };
 
-// Ekspor semua fungsi yang benar
 module.exports = {
   getHeaders,
   deleteRekeningData,
-  getRekening, // <-- Ditambahkan
-  saveData, // <-- Ditambahkan
-  lookup, // <-- Ditambahkan
-  // getDetails,      // <-- Dihapus
+  getRekening,
+  saveData,
+  lookup,
 };

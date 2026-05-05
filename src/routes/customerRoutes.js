@@ -1,26 +1,28 @@
 const express = require("express");
 const router = express.Router();
 const customerController = require("../controllers/customerController");
-// Tambahkan checkSavePermission
+
+// Import dari middleware yang sudah dipisah fungsinya
 const {
   verifyToken,
   checkPermission,
   checkSavePermission,
 } = require("../middlewares/authMiddleware");
+const { injectBranchDb } = require("../middlewares/branchMiddleware");
 
 const CUSTOMER_MENU_ID = "11";
 
-// GET /api/customers (Sudah ada)
+// GET /api/customers
 router.get(
   "/",
-  [verifyToken, checkPermission(CUSTOMER_MENU_ID, "view")],
+  [verifyToken, injectBranchDb, checkPermission(CUSTOMER_MENU_ID, "view")],
   customerController.getAllCustomers,
 );
 
 // GET /api/customers/:kode - Ambil detail (Perlu izin view)
 router.get(
   "/:kode",
-  [verifyToken, checkPermission(CUSTOMER_MENU_ID, "view")],
+  [verifyToken, injectBranchDb, checkPermission(CUSTOMER_MENU_ID, "view")],
   customerController.getCustomer,
 );
 
@@ -28,7 +30,7 @@ router.get(
 router.post(
   "/",
   // Gunakan checkSavePermission (akan cek isNew: true -> insert)
-  [verifyToken, checkSavePermission(CUSTOMER_MENU_ID)],
+  [verifyToken, injectBranchDb, checkSavePermission(CUSTOMER_MENU_ID)],
   customerController.createNewCustomer,
 );
 
@@ -36,7 +38,7 @@ router.post(
 router.put(
   "/:kode",
   // Gunakan checkSavePermission (akan cek isNew: false -> edit)
-  [verifyToken, checkSavePermission(CUSTOMER_MENU_ID)],
+  [verifyToken, injectBranchDb, checkSavePermission(CUSTOMER_MENU_ID)],
   customerController.updateExistingCustomer,
 );
 

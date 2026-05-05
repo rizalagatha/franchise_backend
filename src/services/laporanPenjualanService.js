@@ -1,6 +1,12 @@
-const { pool } = require("../config/database");
+// Hapus baris const { pool } = require("../config/database");
 
-const getLaporanPenjualanData = async (startDate, endDate, cabang, groupBy) => {
+const getLaporanPenjualanData = async (
+  db,
+  startDate,
+  endDate,
+  cabang,
+  groupBy,
+) => {
   let selectClause = "";
   let groupClause = "";
 
@@ -49,7 +55,8 @@ const getLaporanPenjualanData = async (startDate, endDate, cabang, groupBy) => {
       ? [startDate, endDate, cabang]
       : [cabang, startDate, endDate, cabang];
 
-  const [rows] = await pool.query(query, queryParams);
+  // Gunakan parameter db yang disuntikkan
+  const [rows] = await db.query(query, queryParams);
   return rows;
 };
 

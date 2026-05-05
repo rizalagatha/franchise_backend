@@ -5,7 +5,7 @@ const customerService = require("../services/customerService");
  */
 const getAllCustomers = async (req, res) => {
   try {
-    const customers = await customerService.fetchAllCustomers();
+    const customers = await customerService.fetchAllCustomers(req.db);
     res.json(customers);
   } catch (error) {
     console.error("Error fetching customers:", error);
@@ -21,7 +21,10 @@ const getAllCustomers = async (req, res) => {
 const getCustomer = async (req, res) => {
   try {
     const customerCode = req.params.kode; // Ambil kode dari URL
-    const customer = await customerService.getCustomerById(customerCode);
+    const customer = await customerService.getCustomerById(
+      req.db,
+      customerCode,
+    );
     res.json(customer);
   } catch (error) {
     res.status(404).json({ message: error.message });
@@ -34,7 +37,11 @@ const getCustomer = async (req, res) => {
 const createNewCustomer = async (req, res) => {
   try {
     const userKode = req.user.kode; // Dari verifyToken
-    const result = await customerService.createCustomer(req.body, userKode);
+    const result = await customerService.createCustomer(
+      req.db,
+      req.body,
+      userKode,
+    );
     res.status(201).json(result); // Status 201 Created
   } catch (error) {
     res.status(400).json({ message: error.message }); // Status 400 Bad Request
@@ -49,9 +56,10 @@ const updateExistingCustomer = async (req, res) => {
     const customerCode = req.params.kode;
     const userKode = req.user.kode;
     const result = await customerService.updateCustomer(
+      req.db,
       customerCode,
       req.body,
-      userKode
+      userKode,
     );
     res.json(result);
   } catch (error) {

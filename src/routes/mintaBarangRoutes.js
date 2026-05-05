@@ -5,47 +5,60 @@ const {
   verifyToken,
   checkPermission,
 } = require("../middlewares/authMiddleware.js");
+const { injectBranchDb } = require("../middlewares/branchMiddleware.js");
 
 const MINTA_BARANG_MENU_ID = "25";
 
 // Lookup Barang dari tabel Federated (Pusat)
 router.get(
   "/lookup/barang",
-  [verifyToken, checkPermission(MINTA_BARANG_MENU_ID, "view")],
+  [verifyToken, injectBranchDb, checkPermission(MINTA_BARANG_MENU_ID, "view")],
   mintaBarangController.lookupBarang,
 );
 
 // Browse Header
 router.get(
   "/",
-  [verifyToken, checkPermission(MINTA_BARANG_MENU_ID, "view")],
+  [verifyToken, injectBranchDb, checkPermission(MINTA_BARANG_MENU_ID, "view")],
   mintaBarangController.getHeaders,
 );
 
-router.get("/print/:nomor", [verifyToken], mintaBarangController.getPrintData);
+router.get(
+  "/print/:nomor",
+  [verifyToken, injectBranchDb],
+  mintaBarangController.getPrintData,
+);
 
 // Browse Detail
 router.get(
   "/:nomor/details",
-  [verifyToken, checkPermission(MINTA_BARANG_MENU_ID, "view")],
+  [verifyToken, injectBranchDb, checkPermission(MINTA_BARANG_MENU_ID, "view")],
   mintaBarangController.getDetails,
 );
 
 // Delete Permintaan
 router.delete(
   "/:nomor",
-  [verifyToken, checkPermission(MINTA_BARANG_MENU_ID, "delete")],
+  [
+    verifyToken,
+    injectBranchDb,
+    checkPermission(MINTA_BARANG_MENU_ID, "delete"),
+  ],
   mintaBarangController.removeRequest,
 );
 
 // Load data edit
 router.get(
   "/form/:nomor",
-  [verifyToken, checkPermission(MINTA_BARANG_MENU_ID, "edit")],
+  [verifyToken, injectBranchDb, checkPermission(MINTA_BARANG_MENU_ID, "edit")],
   mintaBarangController.getFormData,
 );
 
 // Simpan baru/ubah
-router.post("/save", [verifyToken], mintaBarangController.saveData);
+router.post(
+  "/save",
+  [verifyToken, injectBranchDb],
+  mintaBarangController.saveData,
+);
 
 module.exports = router;

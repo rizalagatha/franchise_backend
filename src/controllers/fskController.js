@@ -1,21 +1,21 @@
 const fskService = require("../services/fskService");
-const { pool } = require("../config/database");
 
 const getHeaders = async (req, res) => {
   try {
     const { startDate, endDate } = req.query;
 
-    // 1. Ambil Kode Cabang RESMI dari tperusahaan (Agar sinkron F02)
-    const [perushRows] = await pool.query(
+    // 1. Ambil Kode Cabang RESMI dari tperusahaan menggunakan req.db
+    const [perushRows] = await req.db.query(
       "SELECT perush_kode FROM tperusahaan LIMIT 1",
     );
     const branchCode = perushRows[0]?.perush_kode || "F01";
 
-    // 2. Kirim branchCode ke service
+    // 2. Kirim req.db dan branchCode ke service
     const headers = await fskService.fetchHeaders(
+      req.db,
       startDate,
       endDate,
-      branchCode, // <--- Ini yang tadi ketinggalan
+      branchCode,
     );
 
     res.json(headers);
@@ -30,7 +30,7 @@ const getHeaders = async (req, res) => {
 const getDetails = async (req, res) => {
   try {
     const { nomor } = req.params;
-    const data = await fskService.fetchDetails(nomor);
+    const data = await fskService.fetchDetails(req.db, nomor);
     res.json(data);
   } catch (error) {
     res.status(500).json({
@@ -43,7 +43,7 @@ const getDetails = async (req, res) => {
 const removeFSK = async (req, res) => {
   try {
     const { nomor } = req.params;
-    const result = await fskService.deleteFSK(nomor);
+    const result = await fskService.deleteFSK(req.db, nomor);
     res.json(result);
   } catch (error) {
     res.status(500).json({
@@ -58,8 +58,7 @@ const removeFSK = async (req, res) => {
 const getFormData = async (req, res) => {
   try {
     const { nomor } = req.params;
-    // Asumsi service loadFormData sudah diimplementasikan mirip Kasir
-    const data = await fskService.loadFormData(nomor);
+    const data = await fskService.loadFormData(req.db, nomor);
     res.json(data);
   } catch (error) {
     res.status(404).json({ message: error.message });
@@ -71,7 +70,6 @@ const getFormData = async (req, res) => {
  */
 const saveNewFSK = async (req, res) => {
   try {
-    // FIX: Ambil detail1 dan detail2 sesuai payload dari Vue
     const { header, detail1, detail2, isNew } = req.body;
     const userKode = req.user.kode;
 
@@ -82,6 +80,7 @@ const saveNewFSK = async (req, res) => {
     }
 
     const result = await fskService.saveFSK(
+      req.db,
       header,
       detail1,
       detail2,
@@ -99,13 +98,13 @@ const saveNewFSK = async (req, res) => {
 const getRekap = async (req, res) => {
   try {
     const { tanggal, kasir } = req.query;
-    const branchCode = req.user.kode.substring(0, 3);
 
     if (!tanggal || !kasir) {
       return res.status(400).json({ message: "Tanggal dan Kasir diperlukan." });
     }
 
-    const data = await fskService.generateRekapData(tanggal, kasir, branchCode);
+    // Panggil service dengan parameter req.db
+    const data = await fskService.generateRekapData(req.db, tanggal, kasir);
     res.json(data);
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -118,13 +117,9 @@ const getRekap = async (req, res) => {
 const getPrintData = async (req, res) => {
   try {
     const { nomor } = req.params;
-
-    // Memanggil service yang sudah kita buat sebelumnya
-    const data = await fskService.getPrintDataFSK(nomor);
-
+    const data = await fskService.getPrintDataFSK(req.db, nomor);
     res.json(data);
   } catch (error) {
-    // Jika data tidak ditemukan, kirim status 404
     res.status(404).json({ message: error.message });
   }
 };

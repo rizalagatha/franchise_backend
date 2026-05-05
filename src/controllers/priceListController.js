@@ -5,7 +5,8 @@ const priceListService = require("../services/priceListService");
  */
 const getAllPriceListData = async (req, res) => {
   try {
-    const data = await priceListService.fetchAllPriceListData();
+    // Kirim req.db ke service
+    const data = await priceListService.fetchAllPriceListData(req.db);
     res.json(data);
   } catch (error) {
     res.status(500).json({
@@ -36,12 +37,14 @@ const updateItemPrice = async (req, res) => {
         .json({ message: "HPP dan Harga Jual harus diisi dengan angka." });
     }
 
+    // Kirim req.db ke service
     const result = await priceListService.updatePrice(
+      req.db,
       kode,
       ukuran,
       parseFloat(hpp),
       parseFloat(harga),
-      userKode
+      userKode,
     );
     res.json(result);
   } catch (error) {
@@ -57,7 +60,12 @@ const updateItemPrice = async (req, res) => {
 const getHistory = async (req, res) => {
   try {
     const { kode, ukuran } = req.params;
-    const history = await priceListService.getPriceHistory(kode, ukuran);
+    // Kirim req.db ke service
+    const history = await priceListService.getPriceHistory(
+      req.db,
+      kode,
+      ukuran,
+    );
     res.json(history);
   } catch (error) {
     res

@@ -1,4 +1,3 @@
-const { pool } = require("../config/database");
 const { format } = require("date-fns");
 
 /**
@@ -21,7 +20,7 @@ const generateNomorPermintaan = async (connection, branchCode, date) => {
   return `${prefix}.${String(nextNum).padStart(4, "0")}`;
 };
 
-const fetchHeaders = async (startDate, endDate) => {
+const fetchHeaders = async (db, startDate, endDate) => {
   const query = `
     SELECT 
       mth_nomor AS Nomor,
@@ -35,11 +34,11 @@ const fetchHeaders = async (startDate, endDate) => {
     WHERE mth_tanggal BETWEEN ? AND ?
     ORDER BY mth_tanggal DESC, mth_nomor DESC
   `;
-  const [rows] = await pool.query(query, [startDate, endDate]);
+  const [rows] = await db.query(query, [startDate, endDate]);
   return rows;
 };
 
-const fetchDetails = async (nomor) => {
+const fetchDetails = async (db, nomor) => {
   const query = `
     SELECT 
       d.mtd_brg_kode AS Kode,
@@ -50,13 +49,13 @@ const fetchDetails = async (nomor) => {
     LEFT JOIN retail.tbarangdc b ON b.brg_kode = d.mtd_brg_kode
     WHERE d.mtd_nomor = ?
   `;
-  const [rows] = await pool.query(query, [nomor]);
+  const [rows] = await db.query(query, [nomor]);
   return rows;
 };
 
-const deleteRequest = async (nomor) => {
+const deleteRequest = async (db, nomor) => {
   // Karena tabel DTL punya ON DELETE CASCADE, hapus HDR saja cukup
-  const [result] = await pool.query(
+  const [result] = await db.query(
     "DELETE FROM tmintaan_kaosan_hdr WHERE mth_nomor = ?",
     [nomor],
   );
@@ -67,8 +66,8 @@ const deleteRequest = async (nomor) => {
   return { message: `Permintaan ${nomor} berhasil dihapus.` };
 };
 
-const loadFormData = async (nomor) => {
-  const [headerRows] = await pool.query(
+const loadFormData = async (db, nomor) => {
+  const [headerRows] = await db.query(
     `SELECT mth_nomor as nomor, DATE_FORMAT(mth_tanggal, '%Y-%m-%d') as tanggal, mth_keterangan as keterangan, mth_status as status 
      FROM tmintaan_kaosan_hdr WHERE mth_nomor = ?`,
     [nomor],
@@ -76,7 +75,7 @@ const loadFormData = async (nomor) => {
 
   if (headerRows.length === 0) throw new Error("Permintaan tidak ditemukan.");
 
-  const [detailRows] = await pool.query(
+  const [detailRows] = await db.query(
     `SELECT d.mtd_brg_kode as kode, d.mtd_jumlah as jumlah, d.mtd_ukuran as ukuran,
      TRIM(CONCAT_WS(' ', b.brg_jeniskaos, b.brg_tipe, b.brg_lengan, b.brg_jeniskain, b.brg_warna)) AS nama,
      bd.brgd_barcode as barcode   /* <--- TARIK BARCODE */
@@ -90,8 +89,8 @@ const loadFormData = async (nomor) => {
   return { header: headerRows[0], items: detailRows };
 };
 
-const saveRequest = async (header, items, userKode, isNew) => {
-  const connection = await pool.getConnection();
+const saveRequest = async (db, header, items, userKode, isNew) => {
+  const connection = await db.getConnection();
   await connection.beginTransaction();
 
   try {
@@ -144,13 +143,12 @@ const saveRequest = async (header, items, userKode, isNew) => {
     const detailValues = items.map((item) => [
       nomorReq,
       item.kode,
-      item.ukuran || "", // <--- Tambahkan ukuran di sini
+      item.ukuran || "",
       item.jumlah,
     ]);
 
     if (detailValues.length > 0) {
       await connection.query(
-        // <--- Pastikan mtd_ukuran ditambahkan di query INSERT ini
         `INSERT INTO tmintaan_kaosan_dtl (mtd_nomor, mtd_brg_kode, mtd_ukuran, mtd_jumlah) VALUES ?`,
         [detailValues],
       );
@@ -169,7 +167,7 @@ const saveRequest = async (header, items, userKode, isNew) => {
 /**
  * Mencari data barang langsung ke tabel FEDERATED (tbarangdc)
  */
-const searchBarangPusat = async (keyword, page, itemsPerPage) => {
+const searchBarangPusat = async (db, keyword, page, itemsPerPage) => {
   const limitVal = parseInt(itemsPerPage) > 0 ? parseInt(itemsPerPage) : 15;
   const offsetVal = (parseInt(page) - 1) * limitVal;
 
@@ -225,7 +223,7 @@ const searchBarangPusat = async (keyword, page, itemsPerPage) => {
     ${searchWhere}
   `;
 
-  const [countRows] = await pool.query(countQuery, params);
+  const [countRows] = await db.query(countQuery, params);
 
   // ---------- QUERY DATA ----------
   const dataQuery = `
@@ -248,18 +246,17 @@ const searchBarangPusat = async (keyword, page, itemsPerPage) => {
     LIMIT ${limitVal} OFFSET ${offsetVal}
   `;
 
-  const [items] = await pool.query(dataQuery, params);
+  const [items] = await db.query(dataQuery, params);
 
   return { items, total: countRows[0].total };
 };
 
-// 2. TAMBAHKAN FUNGSI BARU INI DI BAWAH (Sebelum module.exports):
-const getPrintData = async (nomor, userNama) => {
-  const [perusahaan] = await pool.query(
+const getPrintData = async (db, nomor, userNama) => {
+  const [perusahaan] = await db.query(
     "SELECT perush_nama, perush_alamat, perush_telp FROM tperusahaan LIMIT 1",
   );
 
-  const [header] = await pool.query(
+  const [header] = await db.query(
     `SELECT mth_nomor, DATE_FORMAT(mth_tanggal, '%d-%m-%Y') as tanggal, mth_keterangan, mth_status, user_create 
      FROM tmintaan_kaosan_hdr WHERE mth_nomor = ?`,
     [nomor],
@@ -267,7 +264,7 @@ const getPrintData = async (nomor, userNama) => {
 
   if (header.length === 0) throw new Error("Permintaan tidak ditemukan");
 
-  const [details] = await pool.query(
+  const [details] = await db.query(
     `SELECT 
       d.mtd_brg_kode as kode, 
       d.mtd_ukuran as ukuran, 
@@ -305,5 +302,5 @@ module.exports = {
   loadFormData,
   saveRequest,
   searchBarangPusat,
-  getPrintData, // <--- Jangan lupa ekspor fungsi baru ini
+  getPrintData,
 };

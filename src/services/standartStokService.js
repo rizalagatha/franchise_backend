@@ -1,11 +1,9 @@
-const { pool } = require("../config/database");
-
 /**
  * Mengambil data standar stok beserta stok real-time saat ini khusus untuk cabang/perusahaan aktif
  */
-const fetchStandartStok = async () => {
+const fetchStandartStok = async (db) => {
   // 1. Ambil Kode Cabang Aktif dari tperusahaan
-  const [perushRows] = await pool.query(
+  const [perushRows] = await db.query(
     "SELECT perush_kode FROM tperusahaan LIMIT 1",
   );
 
@@ -46,14 +44,14 @@ const fetchStandartStok = async () => {
     ORDER BY x.Nama, x.Barcode
   `;
 
-  const [rows] = await pool.query(query, [branchPrefix]);
+  const [rows] = await db.query(query, [branchPrefix]);
   return rows;
 };
 
 /**
  * Update nilai Min dan Max Buffer di tbarang_dtl
  */
-const updateBuffer = async (kode, ukuran, minBuffer, maxBuffer) => {
+const updateBuffer = async (db, kode, ukuran, minBuffer, maxBuffer) => {
   // Validasi logika bisnis sesuai Delphi
   const xmin = parseFloat(minBuffer) || 0;
   const xmax = parseFloat(maxBuffer) || 0;
@@ -78,7 +76,7 @@ const updateBuffer = async (kode, ukuran, minBuffer, maxBuffer) => {
     WHERE brgd_kode = ? AND brgd_ukuran = ?
   `;
 
-  const [result] = await pool.query(query, [xmin, xmax, kode, ukuran]);
+  const [result] = await db.query(query, [xmin, xmax, kode, ukuran]);
 
   if (result.affectedRows === 0) {
     throw new Error("Data barang tidak ditemukan atau tidak ada perubahan.");

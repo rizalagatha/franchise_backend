@@ -1,12 +1,6 @@
-const { pool } = require("../config/database");
-const { format } = require("date-fns"); // Untuk format tanggal jika perlu
+const { format } = require("date-fns");
 
-/**
- * Mengambil data header cetak barcode berdasarkan periode.
- * Sesuai SQLMaster Delphi.
- */
-const fetchHeaders = async (startDate, endDate) => {
-  // Pastikan tanggal valid atau set default jika tidak
+const fetchHeaders = async (db, startDate, endDate) => {
   const start = startDate
     ? format(new Date(startDate), "yyyy-MM-dd")
     : format(new Date(), "yyyy-MM-dd");
@@ -17,25 +11,18 @@ const fetchHeaders = async (startDate, endDate) => {
   const query = `
         SELECT 
             h.bch_nomor AS Nomor,
-            DATE_FORMAT(h.bch_tanggal, '%d-%m-%Y') AS Tanggal, -- Format tanggal
-            u.user_nama AS Created -- Ambil nama user
+            DATE_FORMAT(h.bch_tanggal, '%d-%m-%Y') AS Tanggal, 
+            u.user_nama AS Created 
         FROM tbarcode_hdr h
         LEFT JOIN tuser u ON u.user_kode = h.user_create
         WHERE h.bch_tanggal BETWEEN ? AND ? 
         ORDER BY h.bch_tanggal, h.bch_nomor
     `;
-  const [rows] = await pool.query(query, [start, end]);
+  const [rows] = await db.query(query, [start, end]);
   return rows;
 };
 
-/**
- * Mengambil data detail barcode berdasarkan nomor header.
- * Sesuai SQLDetail Delphi (difilter by nomor).
- */
-const fetchDetails = async (nomorHeader) => {
-  console.log(`--- [LOG: Browse] Panggil fetchDetails...`);
-  console.log(`--- [LOG: Browse] Nomor Header: ${nomorHeader}`);
-  // Query ini meniru loaddataall, dimulai dari tbarcode_hdr
+const fetchDetails = async (db, nomorHeader) => {
   const query = `
         SELECT 
             d.bcd_nomor AS Nomor,
@@ -51,29 +38,19 @@ const fetchDetails = async (nomorHeader) => {
         WHERE h.bch_nomor = ? AND d.bcd_nomor IS NOT NULL
         ORDER BY d.bcd_nourut
     `;
-  console.log(`--- [LOG: Browse] Query: ${query.substring(0, 150)}...`);
-  const [rows] = await pool.query(query, [nomorHeader]);
-  console.log(
-    `--- [LOG: Browse] Hasil: Ditemukan ${rows.length} baris detail.`,
-  );
+  const [rows] = await db.query(query, [nomorHeader]);
   return rows;
 };
 
-/**
- * Menghapus data header dan detail barcode.
- * Menggunakan transaksi.
- */
-const deleteBarcode = async (nomorHeader) => {
-  const connection = await pool.getConnection();
+const deleteBarcode = async (db, nomorHeader) => {
+  const connection = await db.getConnection();
   try {
     await connection.beginTransaction();
 
-    // 1. Hapus Detail dulu (jika ada foreign key constraint)
     await connection.query("DELETE FROM tbarcode_dtl WHERE bcd_nomor = ?", [
       nomorHeader,
     ]);
 
-    // 2. Hapus Header
     const [result] = await connection.query(
       "DELETE FROM tbarcode_hdr WHERE bch_nomor = ?",
       [nomorHeader],
@@ -87,35 +64,24 @@ const deleteBarcode = async (nomorHeader) => {
     return { message: `Data barcode ${nomorHeader} berhasil dihapus.` };
   } catch (error) {
     await connection.rollback();
-    console.error("Error deleting barcode:", error);
     throw new Error(error.message || "Gagal menghapus data barcode.");
   } finally {
     connection.release();
   }
 };
 
-/**
- * Mencari barang untuk lookup F1 dengan stok sesuai tperusahaan
- */
-const searchBarcodeLookupItems = async (term, page, itemsPerPage) => {
+const searchBarcodeLookupItems = async (db, term, page, itemsPerPage) => {
   const offset = (page - 1) * itemsPerPage;
   const searchTermLike = term ? `%${term.trim()}%` : null;
 
-  // 1. Ambil Kode Cabang Aktif dari tperusahaan
-  const [perushRows] = await pool.query(
+  const [perushRows] = await db.query(
     "SELECT perush_kode FROM tperusahaan LIMIT 1",
   );
   if (perushRows.length === 0) throw new Error("Data perusahaan belum diatur.");
   const branchPrefix = perushRows[0].perush_kode;
 
-  const namaBarangField = `
-        TRIM(CONCAT_WS(' ', 
-            a.brg_jeniskaos, a.brg_tipe, a.brg_lengan, 
-            a.brg_jeniskain, a.brg_warna
-        ))
-    `;
+  const namaBarangField = `TRIM(CONCAT_WS(' ', a.brg_jeniskaos, a.brg_tipe, a.brg_lengan, a.brg_jeniskain, a.brg_warna))`;
 
-  // Subquery Stok: Filter berdasarkan prefix Cabang Aktif
   const stokSubQuery = `
         LEFT JOIN (
             SELECT mst_brg_kode, mst_ukuran, SUM(mst_stok_in - mst_stok_out) as saldo
@@ -144,7 +110,7 @@ const searchBarcodeLookupItems = async (term, page, itemsPerPage) => {
   }
 
   const countQuery = `SELECT COUNT(*) as total ${fromClause} ${whereClause}`;
-  const [countRows] = await pool.query(countQuery, params);
+  const [countRows] = await db.query(countQuery, params);
   const total = countRows[0].total;
 
   const dataQuery = `
@@ -163,26 +129,20 @@ const searchBarcodeLookupItems = async (term, page, itemsPerPage) => {
     `;
 
   const dataParams = [...params, itemsPerPage, offset];
-  const [items] = await pool.query(dataQuery, dataParams);
+  const [items] = await db.query(dataQuery, dataParams);
 
   return { items, total };
 };
 
-/**
- * Menyimpan data Cetak Barcode (Header + Detail).
- * Bisa untuk create (isNew=true) atau update (isNew=false).
- */
-const saveBarcodeData = async (headerData, itemsData, userKode, isNew) => {
-  const connection = await pool.getConnection();
+const saveBarcodeData = async (db, headerData, itemsData, userKode, isNew) => {
+  const connection = await db.getConnection();
   try {
     await connection.beginTransaction();
 
-    let nomorBarcode = headerData.nomor; // Ambil nomor dari header (jika update)
-    const tanggal = format(new Date(headerData.tanggal), "yyyy-MM-dd"); // Pastikan format tanggal SQL
+    let nomorBarcode = headerData.nomor;
+    const tanggal = format(new Date(headerData.tanggal), "yyyy-MM-dd");
 
-    // 1. Proses Header
     if (isNew) {
-      // Generate nomor baru (Logika Delphi getmaxnomor)
       const nomorQuery = `
                 SELECT IFNULL(MAX(RIGHT(bch_nomor, 5)), 0) AS lastNum 
                 FROM tbarcode_hdr 
@@ -193,7 +153,6 @@ const saveBarcodeData = async (headerData, itemsData, userKode, isNew) => {
       const nextNum = parseInt(nomorRows[0].lastNum, 10) + 1;
       nomorBarcode = `${prefix}${String(nextNum).padStart(5, "0")}`;
 
-      // Insert header
       const insertHeaderQuery = `
                 INSERT INTO tbarcode_hdr (bch_nomor, bch_tanggal, user_create, date_create) 
                 VALUES (?, ?, ?, NOW())
@@ -204,7 +163,6 @@ const saveBarcodeData = async (headerData, itemsData, userKode, isNew) => {
         userKode,
       ]);
     } else {
-      // Update header (hanya tanggal & user modified)
       const updateHeaderQuery = `
                 UPDATE tbarcode_hdr SET 
                     bch_tanggal = ?, 
@@ -219,27 +177,23 @@ const saveBarcodeData = async (headerData, itemsData, userKode, isNew) => {
       ]);
     }
 
-    // 2. Proses Detail (Delete existing then Insert new)
-    // Delphi: s:='delete from tbarcode_dtl where bcd_nomor='+ quot(edtNomor.Text) ; xExecQuery(s,frmmenu.conn);
     await connection.query("DELETE FROM tbarcode_dtl WHERE bcd_nomor = ?", [
       nomorBarcode,
     ]);
 
-    // Insert detail baru dari itemsData
     if (itemsData && itemsData.length > 0) {
       const insertDetailQuery = `
                 INSERT INTO tbarcode_dtl (bcd_nomor, bcd_kode, bcd_ukuran, bcd_jumlah, bcd_nourut) 
-                VALUES ?`; // Gunakan bulk insert
+                VALUES ?`;
 
       const detailValues = itemsData
-        // Filter item yang valid (punya nama/kode & jumlah > 0)
         .filter((item) => item.kode && (item.jumlah || 0) > 0)
         .map((item, index) => [
           nomorBarcode,
           item.kode,
           item.ukuran,
-          item.jumlah || 0, // Pastikan jumlah adalah angka
-          index + 1, // bcd_nourut
+          item.jumlah || 0,
+          index + 1,
         ]);
 
       if (detailValues.length > 0) {
@@ -254,19 +208,13 @@ const saveBarcodeData = async (headerData, itemsData, userKode, isNew) => {
     };
   } catch (error) {
     await connection.rollback();
-    console.error("Error saving barcode data:", error);
     throw new Error(error.message || "Gagal menyimpan data barcode.");
   } finally {
     connection.release();
   }
 };
 
-/**
- * Mengambil data header dan detail untuk mode edit.
- * Sesuai logika Delphi loaddataall.
- */
-const loadFormData = async (nomorBarcode) => {
-  // 1. Ambil Header
+const loadFormData = async (db, nomorBarcode) => {
   const headerQuery = `
         SELECT 
             h.bch_nomor, 
@@ -274,15 +222,10 @@ const loadFormData = async (nomorBarcode) => {
         FROM tbarcode_hdr h 
         WHERE h.bch_nomor = ?
      `;
-  const [headerRows] = await pool.query(headerQuery, [nomorBarcode]);
-  if (headerRows.length === 0) {
+  const [headerRows] = await db.query(headerQuery, [nomorBarcode]);
+  if (headerRows.length === 0)
     throw new Error("Nomor barcode tidak ditemukan.");
-  }
   const header = headerRows[0];
-
-  // 2. Ambil Detail
-  console.log(`--- [LOG: Edit Form] Panggil loadFormData (detail)...`);
-  console.log(`--- [LOG: Edit Form] Nomor Barcode: ${nomorBarcode}`);
 
   const detailQuery = `
         SELECT 
@@ -299,44 +242,27 @@ const loadFormData = async (nomorBarcode) => {
         WHERE h.bch_nomor = ? AND d.bcd_nomor IS NOT NULL
         ORDER BY d.bcd_nourut
      `;
-
-  console.log(
-    `--- [LOG: Edit Form] Query: ${detailQuery.substring(0, 150)}...`,
-  ); // Log query
-
-  const [details] = await pool.query(detailQuery, [nomorBarcode]);
-
-  console.log(
-    `--- [LOG: Edit Form] Hasil: Ditemukan ${details.length} baris detail.`,
-  ); // Log hasil
+  const [details] = await db.query(detailQuery, [nomorBarcode]);
 
   return { header, items: details };
 };
 
-const getVarianDetailsByKode = async (kodeBarang) => {
+const getVarianDetailsByKode = async (db, kodeBarang) => {
   const query = `
         SELECT 
             b.brgd_kode AS kode, 
             IFNULL(b.brgd_barcode, '') AS barcode,
             IFNULL(b.brgd_ukuran, '') AS ukuran,
             IFNULL(b.brgd_harga, 0) AS harga,
-            
-            /* --- PERBAIKAN NAMA KOSONG --- */
-            TRIM(CONCAT_WS(' ', 
-                a.brg_jeniskaos, a.brg_tipe, a.brg_lengan, 
-                a.brg_jeniskain, a.brg_warna
-            )) AS nama
-            /* --- AKHIR PERBAIKAN --- */
-
+            TRIM(CONCAT_WS(' ', a.brg_jeniskaos, a.brg_tipe, a.brg_lengan, a.brg_jeniskain, a.brg_warna)) AS nama
         FROM tbarang_dtl b
         INNER JOIN tbarang a ON a.brg_kode = b.brgd_kode
         WHERE b.brgd_kode = ?
         ORDER BY b.brgd_ukuran
     `;
-  const [rows] = await pool.query(query, [kodeBarang]);
-  if (rows.length === 0) {
+  const [rows] = await db.query(query, [kodeBarang]);
+  if (rows.length === 0)
     throw new Error(`Varian detail untuk kode ${kodeBarang} tidak ditemukan.`);
-  }
   return rows;
 };
 

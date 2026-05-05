@@ -5,29 +5,39 @@ const {
   verifyToken,
   checkPermission,
 } = require("../middlewares/authMiddleware");
+const { injectBranchDb } = require("../middlewares/branchMiddleware");
 
 const MENU_ID = "1";
 
 router.get(
   "/",
-  [verifyToken, checkPermission(MENU_ID, "view")],
+  [verifyToken, injectBranchDb, checkPermission(MENU_ID, "view")],
   userController.getBrowseUsers,
 );
-router.get("/list", verifyToken, userController.getUserList);
-router.post("/change-password", [verifyToken], userController.changePassword);
+router.get("/list", [verifyToken, injectBranchDb], userController.getUserList);
+router.post(
+  "/change-password",
+  [verifyToken, injectBranchDb],
+  userController.changePassword,
+);
+
 // Endpoint untuk resource Form (Baru & Ubah)
-router.get("/form-resources", [verifyToken], userController.getFormResources);
+router.get(
+  "/form-resources",
+  [verifyToken, injectBranchDb],
+  userController.getFormResources,
+);
 router.get(
   "/form-resources/:kode",
-  [verifyToken],
+  [verifyToken, injectBranchDb],
   userController.getFormResources,
 );
 
 // Endpoint Simpan
-router.post("/save", [verifyToken], userController.saveUser);
+router.post("/save", [verifyToken, injectBranchDb], userController.saveUser);
 router.delete(
   "/:kode",
-  [verifyToken, checkPermission(MENU_ID, "delete")],
+  [verifyToken, injectBranchDb, checkPermission(MENU_ID, "delete")],
   userController.deleteUser,
 );
 

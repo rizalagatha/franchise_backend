@@ -1,4 +1,3 @@
-const { pool } = require("../config/database");
 const { format } = require("date-fns");
 
 // utils/terbilang.js (Atau letakkan di bagian atas service Anda)
@@ -58,9 +57,9 @@ const formatTerbilang = (angka) => {
 /**
  * Mengambil Data Master (Header) Setoran Pembayaran
  */
-const fetchHeaders = async (startDate, endDate) => {
+const fetchHeaders = async (db, startDate, endDate) => {
   // 1. Ambil Kode Cabang RESMI
-  const [perushRows] = await pool.query(
+  const [perushRows] = await db.query(
     "SELECT perush_kode FROM tperusahaan LIMIT 1",
   );
   const branchCode = perushRows[0]?.perush_kode || "F01";
@@ -83,14 +82,14 @@ const fetchHeaders = async (startDate, endDate) => {
     GROUP BY h.sh_nomor
     ORDER BY h.sh_tanggal DESC, h.sh_nomor DESC
   `;
-  const [rows] = await pool.query(query, [branchCode, startDate, endDate]);
+  const [rows] = await db.query(query, [branchCode, startDate, endDate]);
   return rows;
 };
 
 /**
  * Mengambil Data Detail untuk Ekspansi Row
  */
-const fetchDetails = async (nomor) => {
+const fetchDetails = async (db, nomor) => {
   const query = `
     SELECT d.sd_sh_nomor AS Nomor, d.sd_tanggal AS TglBayar, d.sd_inv AS Invoice, 
            ph.ph_tanggal AS TglInvoice, ph.ph_nominal AS Nominal, 
@@ -101,16 +100,16 @@ const fetchDetails = async (nomor) => {
     WHERE d.sd_sh_nomor = ?
     ORDER BY d.sd_nourut, d.sd_angsur
   `;
-  const [rows] = await pool.query(query, [nomor]);
+  const [rows] = await db.query(query, [nomor]);
   return rows;
 };
 
 /**
  * Menghapus Data Setoran dengan Validasi Bisnis
  */
-const deleteSetoran = async (nomor) => {
+const deleteSetoran = async (db, nomor) => {
   // Cek apakah ada link otomatis (prosedur ceksdoto di Delphi)
-  const [autoCheck] = await pool.query(
+  const [autoCheck] = await db.query(
     "SELECT 1 FROM tsetor_dtl WHERE sd_otomatis='Y' AND sd_sh_nomor=?",
     [nomor],
   );
@@ -121,7 +120,7 @@ const deleteSetoran = async (nomor) => {
     );
   }
 
-  const connection = await pool.getConnection();
+  const connection = await db.getConnection();
   await connection.beginTransaction();
   try {
     await connection.query("DELETE FROM tsetor_dtl WHERE sd_sh_nomor = ?", [
@@ -161,7 +160,7 @@ const generateNomorSTR = async (connection, branchCode, date) => {
 /**
  * Mengambil Daftar Piutang Belum Lunas (Bantuan Invoice)
  */
-const fetchUnpaidInvoices = async (cusKode) => {
+const fetchUnpaidInvoices = async (db, cusKode) => {
   const query = `
     SELECT * FROM (
       SELECT h.ph_inv_nomor AS Invoice, h.ph_tanggal AS TglInvoice, h.ph_nominal AS Nominal,
@@ -171,15 +170,15 @@ const fetchUnpaidInvoices = async (cusKode) => {
       WHERE h.ph_cus_kode = ?
     ) X WHERE X.Sisa > 0 ORDER BY X.TglInvoice ASC`;
 
-  const [rows] = await pool.query(query, [cusKode]);
+  const [rows] = await db.query(query, [cusKode]);
   return rows;
 };
 
 /**
  * Simpan Data Setoran (Insert/Update)
  */
-const saveSetoran = async (header, details, userKode, isNew) => {
-  const connection = await pool.getConnection();
+const saveSetoran = async (db, header, details, userKode, isNew) => {
+  const connection = await db.getConnection();
   await connection.beginTransaction();
 
   try {
@@ -274,9 +273,9 @@ const saveSetoran = async (header, details, userKode, isNew) => {
 /**
  * Mengambil data lengkap Setoran Pembayaran untuk form Edit
  */
-const fetchOneSetoran = async (nomor) => {
+const fetchOneSetoran = async (db, nomor) => {
   // 1. Ambil Header beserta info Customer & Rekening
-  const [headerRows] = await pool.query(
+  const [headerRows] = await db.query(
     `SELECT h.*, IF(h.sh_jenis=0,"TUNAI","TRANSFER") AS JenisBayar,
             c.cus_nama, c.cus_alamat, c.cus_kota, c.cus_telp,
             r.rek_namabank, DATE_FORMAT(h.sh_tanggal, '%Y-%m-%d') as sh_tanggal,
@@ -292,7 +291,7 @@ const fetchOneSetoran = async (nomor) => {
   if (headerRows.length === 0) throw new Error("Data tidak ditemukan.");
 
   // 2. Ambil Rincian Invoice yang dibayar (Detail)
-  const [detailRows] = await pool.query(
+  const [detailRows] = await db.query(
     `SELECT d.sd_inv AS invoice, d.sd_bayar AS bayar, d.sd_ket AS ket, d.sd_angsur AS angsur,
             p.ph_tanggal AS tanggal, p.ph_nominal AS nominal,
             (SELECT SUM(pd_kredit) FROM tpiutang_dtl WHERE pd_ph_nomor = p.ph_nomor AND pd_ket != ?) AS terbayar_sebelumnya
@@ -317,9 +316,9 @@ const fetchOneSetoran = async (nomor) => {
 /**
  * Mengambil data khusus untuk Print Out Setoran
  */
-const getPrintData = async (nomor) => {
+const getPrintData = async (db, nomor) => {
   // 1. Ambil Header
-  const [headerRows] = await pool.query(
+  const [headerRows] = await db.query(
     `SELECT h.sh_nomor, DATE_FORMAT(h.sh_tanggal, '%Y-%m-%d') as sh_tanggal,
             h.sh_cus_kode, c.cus_nama, c.cus_alamat, c.cus_telp,
             h.sh_nominal, h.sh_ket,
@@ -339,7 +338,7 @@ const getPrintData = async (nomor) => {
   header.terbilang = formatTerbilang(header.sh_nominal);
 
   // 2. Ambil Detail
-  const [detailRows] = await pool.query(
+  const [detailRows] = await db.query(
     `SELECT d.sd_inv AS invoice, d.sd_bayar AS bayar, d.sd_ket AS ket
      FROM tsetor_dtl d
      WHERE d.sd_sh_nomor = ?

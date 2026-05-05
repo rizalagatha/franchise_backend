@@ -11,7 +11,9 @@ const getLaporanPenjualan = async (req, res) => {
       });
     }
 
+    // Kirim req.db ke service
     const data = await laporanPenjualanService.getLaporanPenjualanData(
+      req.db,
       startDate,
       endDate,
       cabang,

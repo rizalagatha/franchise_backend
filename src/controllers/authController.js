@@ -17,5 +17,4 @@ const login = async (req, res) => {
 
 module.exports = {
   login,
-  // Kita HAPUS selectBranch
 };

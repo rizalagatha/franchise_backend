@@ -1,17 +1,14 @@
-const { pool } = require("../config/database");
 const { externalPool } = require("../config/externalDatabase");
 const { format } = require("date-fns");
 
 /**
  * Mengambil data header pembelian (tbpb_hdr) berdasarkan periode.
- * Sesuai SQLMaster Delphi.
  */
-const fetchHeaders = async (startDate, endDate) => {
+const fetchHeaders = async (db, startDate, endDate) => {
   // Pastikan tanggal valid
   const start = format(new Date(startDate), "yyyy-MM-dd");
   const end = format(new Date(endDate), "yyyy-MM-dd");
 
-  // Query dari referensi Delphi
   const query = `
         SELECT 
             h.bpb_nomor AS Nomor,
@@ -26,15 +23,14 @@ const fetchHeaders = async (startDate, endDate) => {
         WHERE h.bpb_tanggal BETWEEN ? AND ?
         ORDER BY h.date_create
     `;
-  const [rows] = await pool.query(query, [start, end]);
+  const [rows] = await db.query(query, [start, end]);
   return rows;
 };
 
 /**
  * Mengambil data detail pembelian (tbpb_dtl) berdasarkan nomor header.
- * Disederhanakan dari SQLDetail Delphi.
  */
-const fetchDetails = async (nomorHeader) => {
+const fetchDetails = async (db, nomorHeader) => {
   const query = `
         SELECT 
             d.bpbd_nomor AS Nomor,
@@ -49,16 +45,15 @@ const fetchDetails = async (nomorHeader) => {
         WHERE d.bpbd_nomor = ?
         ORDER BY d.bpbd_nourut
     `;
-  const [rows] = await pool.query(query, [nomorHeader]);
+  const [rows] = await db.query(query, [nomorHeader]);
   return rows;
 };
 
 /**
  * Menghapus header dan detail pembelian.
- * Delphi hanya hapus header, kita hapus detail juga (transaksional).
  */
-const deletePembelian = async (nomorHeader) => {
-  const connection = await pool.getConnection();
+const deletePembelian = async (db, nomorHeader) => {
+  const connection = await db.getConnection();
   try {
     await connection.beginTransaction();
 
@@ -90,9 +85,8 @@ const deletePembelian = async (nomorHeader) => {
 
 /**
  * 6. Mengambil data header dan detail untuk mode edit.
- * Sesuai logika Delphi loaddataall.
  */
-const loadFormData = async (nomorPembelian) => {
+const loadFormData = async (db, nomorPembelian) => {
   const headerQuery = `
         SELECT 
             h.bpb_nomor, 
@@ -103,13 +97,12 @@ const loadFormData = async (nomorPembelian) => {
         FROM tbpb_hdr h 
         WHERE h.bpb_nomor = ?
      `;
-  const [headerRows] = await pool.query(headerQuery, [nomorPembelian]);
+  const [headerRows] = await db.query(headerQuery, [nomorPembelian]);
   if (headerRows.length === 0) {
     throw new Error("Nomor pembelian tidak ditemukan.");
   }
   const header = headerRows[0];
 
-  // Query detail (loaddataall)
   const detailQuery = `
         SELECT 
             d.bpbd_kode AS kode,
@@ -127,17 +120,16 @@ const loadFormData = async (nomorPembelian) => {
         WHERE d.bpbd_nomor = ? 
         ORDER BY d.bpbd_nourut
      `;
-  const [details] = await pool.query(detailQuery, [nomorPembelian]);
+  const [details] = await db.query(detailQuery, [nomorPembelian]);
 
   return { header, items: details };
 };
 
 /**
  * 7. Menyimpan data Pembelian (Create/Update).
- * Sesuai logika Delphi simpandata (termasuk update master).
  */
-const savePembelian = async (headerData, itemsData, userKode, isNew) => {
-  const connection = await pool.getConnection(); // Koneksi DB Lokal
+const savePembelian = async (db, headerData, itemsData, userKode, isNew) => {
+  const connection = await db.getConnection(); // Koneksi DB Lokal
   await connection.beginTransaction();
 
   try {
@@ -153,9 +145,14 @@ const savePembelian = async (headerData, itemsData, userKode, isNew) => {
     }, 0);
 
     if (isNew) {
-      // Generate nomor (getmaxnomor Delphi)
       const tahun = format(new Date(tanggal), "yyyy");
-      const prefix = `F02.BPB.${tahun}`; // Asumsi F02 adalah CABKAOS
+      // Minta DB Cabang untuk tahu perush_kode, agar prefix dinamis
+      const [perush] = await connection.query(
+        "SELECT perush_kode FROM tperusahaan LIMIT 1",
+      );
+      const branchCode = perush[0]?.perush_kode || "F02";
+
+      const prefix = `${branchCode}.BPB.${tahun}`;
       const nomorQuery = `
                 SELECT IFNULL(MAX(RIGHT(bpb_nomor, 5)), 0) AS jumlah 
                 FROM tbpb_hdr 
@@ -164,7 +161,6 @@ const savePembelian = async (headerData, itemsData, userKode, isNew) => {
       const nextNum = parseInt(nomorRows[0].jumlah, 10) + 1;
       nomorPembelian = `${prefix}${String(nextNum).padStart(5, "0")}`;
 
-      // Insert header
       const insertHeaderQuery = `
                 INSERT INTO tbpb_hdr 
                 (bpb_nomor, bpb_tanggal, bpb_nominal, bpb_ket, bpb_inv_nomor, bpb_inv_tanggal, date_create, user_create) 
@@ -180,7 +176,6 @@ const savePembelian = async (headerData, itemsData, userKode, isNew) => {
         userKode,
       ]);
     } else {
-      // Update header
       const updateHeaderQuery = `
                 UPDATE tbpb_hdr SET 
                     bpb_tanggal = ?, bpb_inv_nomor = ?, bpb_inv_tanggal = ?, 
@@ -199,21 +194,17 @@ const savePembelian = async (headerData, itemsData, userKode, isNew) => {
     }
 
     // --- Proses Detail ---
-    // 1. Hapus detail lama
     await connection.query("DELETE FROM tbpb_dtl WHERE bpbd_nomor = ?", [
       nomorPembelian,
     ]);
 
-    // 2. Insert detail baru
     if (itemsData && itemsData.length > 0) {
       const detailValues = [];
       const masterBarangQueries = [];
       const masterDtlQueries = [];
 
       itemsData.forEach((item, index) => {
-        // Pastikan data valid (Delphi: nama <> '' and jumlah <> 0)
         if (item.kode && (item.jumlah || 0) > 0) {
-          // Data untuk tbpb_dtl
           detailValues.push([
             nomorPembelian,
             item.kode,
@@ -222,13 +213,10 @@ const savePembelian = async (headerData, itemsData, userKode, isNew) => {
             item.jumlah || 0,
             item.hpp || 0,
             item.jual || 0,
-            index + 1, // nourut
+            index + 1,
           ]);
 
-          // Delphi juga update/insert tbarang dan tbarang_dtl
-          // (Hanya jika mode Baru? Delphi: if flagedit=False then...)
           if (isNew) {
-            // Query Insert/Update tbarang
             masterBarangQueries.push({
               query: `
                                 INSERT INTO tbarang 
@@ -237,7 +225,7 @@ const savePembelian = async (headerData, itemsData, userKode, isNew) => {
                                 ON DUPLICATE KEY UPDATE brg_warna = ?`,
               params: [
                 item.kode,
-                item.ktgp ?? "", // default ke string kosong
+                item.ktgp ?? "",
                 item.ktg ?? "",
                 item.bahan ?? "",
                 item.jeniskaos ?? "",
@@ -249,7 +237,6 @@ const savePembelian = async (headerData, itemsData, userKode, isNew) => {
               ],
             });
 
-            // Query Insert/Update tbarang_dtl
             masterDtlQueries.push({
               query: `
                 INSERT INTO tbarang_dtl 
@@ -278,7 +265,6 @@ const savePembelian = async (headerData, itemsData, userKode, isNew) => {
         await connection.query(insertDetailQuery, [detailValues]);
       }
 
-      // Eksekusi update master data jika mode Baru
       if (isNew) {
         for (const q of masterBarangQueries) {
           await connection.query(q.query, q.params);
@@ -305,10 +291,8 @@ const savePembelian = async (headerData, itemsData, userKode, isNew) => {
 
 /**
  * 8. Lookup Barcode (Scan).
- * Sesuai logika Delphi loadbrg(ckode).
  */
-const lookupBarcode = async (barcode) => {
-  // Query Delphi: cari tbarang_dtl + tbarang
+const lookupBarcode = async (db, barcode) => {
   const query = `
         SELECT 
             b.brgd_kode AS kode,
@@ -321,22 +305,20 @@ const lookupBarcode = async (barcode) => {
         INNER JOIN tbarang a ON a.brg_kode = b.brgd_kode
         WHERE b.brgd_barcode = ?
     `;
-  const [rows] = await pool.query(query, [barcode]);
+  const [rows] = await db.query(query, [barcode]);
   if (rows.length === 0) {
     throw new Error(`Barcode ${barcode} tidak ditemukan.`);
   }
-  // Asumsi barcode unik, kembalikan data barang pertama
   return rows[0];
 };
 
 /**
  * 9. Lookup Invoice (dari DB Eksternal).
- * Sesuai logika Delphi edtNomorInvExit.
  */
-const lookupInvoice = async (nomorInvoice) => {
-  // Cek dulu di DB lokal (cekinv Delphi)
+const lookupInvoice = async (db, nomorInvoice) => {
+  // Cek dulu di DB lokal (cekinv Delphi) -- Pakai DB yang di-inject
   const checkQuery = "SELECT 1 FROM tbpb_hdr WHERE bpb_inv_nomor = ?";
-  const [existing] = await pool.query(checkQuery, [nomorInvoice]);
+  const [existing] = await db.query(checkQuery, [nomorInvoice]);
   if (existing.length > 0) {
     throw new Error("Invoice tersebut sudah pernah diinput di Pembelian.");
   }
@@ -383,12 +365,10 @@ const lookupInvoice = async (nomorInvoice) => {
       );
     }
 
-    // Proses header
     const header = {
       tglInvoice: format(new Date(rows[0].inv_tanggal), "yyyy-MM-dd"),
     };
 
-    // Proses detail (Logika HPP Delphi)
     const items = rows.map((row) => {
       const njml = parseFloat(row.total_jml_invoice) || 0;
       const nharga =
@@ -411,11 +391,11 @@ const lookupInvoice = async (nomorInvoice) => {
 
       return {
         kode: row.invd_kode,
-        kodex: row.invd_kode, // Sesuai Delphi
+        kodex: row.invd_kode,
         nama: row.nama,
         ukuran: row.invd_ukuran,
         qtyinv: parseFloat(row.invd_jumlah) || 0,
-        jumlah: parseFloat(row.invd_jumlah) || 0, // Default Qty Terima = Qty Inv
+        jumlah: parseFloat(row.invd_jumlah) || 0,
         jual: parseFloat(row.invd_harga) || 0,
         hpp: xhpp,
         total: (parseFloat(row.invd_jumlah) || 0) * xhpp,
@@ -444,8 +424,8 @@ module.exports = {
   fetchHeaders,
   fetchDetails,
   deletePembelian,
-  loadFormData, // <-- Baru
-  savePembelian, // <-- Baru
-  lookupBarcode, // <-- Baru
+  loadFormData,
+  savePembelian,
+  lookupBarcode,
   lookupInvoice,
 };

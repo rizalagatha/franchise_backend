@@ -1,9 +1,7 @@
-const { pool } = require("../config/database");
-
 /**
  * Mengambil data laporan stok dengan pivot tabel ukuran
  */
-const getLaporanStokData = async (tanggal, cabang, tampilKosong) => {
+const getLaporanStokData = async (db, tanggal, cabang, tampilKosong) => {
   let query = `
     SELECT 
       a.brg_kode AS Kode,
@@ -47,7 +45,7 @@ const getLaporanStokData = async (tanggal, cabang, tampilKosong) => {
 
   query += ` ORDER BY NamaBarang`;
 
-  const [rows] = await pool.query(query, [cabang, tanggal]);
+  const [rows] = await db.query(query, [cabang, tanggal]);
   return rows;
 };
 

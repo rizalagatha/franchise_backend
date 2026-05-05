@@ -11,8 +11,9 @@ const getLaporanStok = async (req, res) => {
         .json({ message: "Tanggal dan cabang harus diisi" });
     }
 
-    // Panggil service
+    // Panggil service dengan menambahkan req.db
     const data = await laporanStokService.getLaporanStokData(
+      req.db,
       tanggal,
       cabang,
       tampilKosong,

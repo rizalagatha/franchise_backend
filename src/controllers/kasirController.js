@@ -6,7 +6,7 @@ const getHeaders = async (req, res) => {
     if (!startDate || !endDate) {
       return res.status(400).json({ message: "Filter tanggal diperlukan." });
     }
-    const data = await kasirService.fetchHeaders(startDate, endDate);
+    const data = await kasirService.fetchHeaders(req.db, startDate, endDate);
     res.json(data);
   } catch (error) {
     res
@@ -18,7 +18,7 @@ const getHeaders = async (req, res) => {
 const getDetails = async (req, res) => {
   try {
     const { nomor } = req.params;
-    const data = await kasirService.fetchDetails(nomor);
+    const data = await kasirService.fetchDetails(req.db, nomor);
     res.json(data);
   } catch (error) {
     res
@@ -30,7 +30,7 @@ const getDetails = async (req, res) => {
 const removeInvoice = async (req, res) => {
   try {
     const { nomor } = req.params;
-    const result = await kasirService.deleteInvoice(nomor);
+    const result = await kasirService.deleteInvoice(req.db, nomor);
     res.json(result);
   } catch (error) {
     res
@@ -45,7 +45,7 @@ const removeInvoice = async (req, res) => {
 const getFormData = async (req, res) => {
   try {
     const { nomor } = req.params;
-    const data = await kasirService.loadFormData(nomor);
+    const data = await kasirService.loadFormData(req.db, nomor);
     res.json(data);
   } catch (error) {
     res.status(404).json({ message: error.message });
@@ -65,6 +65,7 @@ const saveData = async (req, res) => {
     }
 
     const result = await kasirService.saveInvoice(
+      req.db,
       header,
       items,
       userKode,
@@ -82,7 +83,7 @@ const getPrintData = async (req, res) => {
   try {
     const { nomor } = req.params;
     const userNama = req.user.nama;
-    const data = await kasirService.getPrintDataKasir(nomor, userNama);
+    const data = await kasirService.getPrintDataKasir(req.db, nomor, userNama);
     res.json(data);
   } catch (error) {
     res.status(404).json({ message: error.message });
@@ -91,7 +92,7 @@ const getPrintData = async (req, res) => {
 
 const getPrintDataA4 = async (req, res) => {
   try {
-    const data = await kasirService.getPrintDataA4(req.params.nomor);
+    const data = await kasirService.getPrintDataA4(req.db, req.params.nomor);
     res.json(data);
   } catch (error) {
     res.status(404).json({ message: error.message });

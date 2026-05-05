@@ -5,20 +5,21 @@ const {
   verifyToken,
   checkPermission,
 } = require("../middlewares/authMiddleware");
+const { injectBranchDb } = require("../middlewares/branchMiddleware");
 
 const STANDART_STOK_MENU_ID = "24";
 
 // GET /api/standart-stok (Browse)
 router.get(
   "/",
-  [verifyToken, checkPermission(STANDART_STOK_MENU_ID, "view")],
+  [verifyToken, injectBranchDb, checkPermission(STANDART_STOK_MENU_ID, "view")],
   standartStokController.getStandartStok,
 );
 
 // PUT /api/standart-stok/update (Update Min/Max)
 router.put(
   "/update",
-  [verifyToken, checkPermission(STANDART_STOK_MENU_ID, "edit")],
+  [verifyToken, injectBranchDb, checkPermission(STANDART_STOK_MENU_ID, "edit")],
   standartStokController.updateBufferData,
 );
 

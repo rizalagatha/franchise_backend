@@ -1,7 +1,5 @@
-const { pool } = require("../config/database");
-
-const getUsers = async () => {
-  const [rows] = await pool.query(
+const getUsers = async (db) => {
+  const [rows] = await db.query(
     `SELECT user_kode AS Kode, user_nama AS Nama, user_aktif AS Aktif
      FROM tuser
      ORDER BY user_nama`,
@@ -9,12 +7,20 @@ const getUsers = async () => {
   return rows;
 };
 
-const deleteUser = async (kode) => {
+// Fungsi baru yang dipindahkan dari controller
+const getUserList = async (db) => {
+  const [rows] = await db.query(
+    "SELECT user_kode, user_nama FROM tuser WHERE user_aktif = 'Y' ORDER BY user_nama ASC",
+  );
+  return rows;
+};
+
+const deleteUser = async (db, kode) => {
   if (kode === "ADMIN") {
     throw new Error("User Admin tidak boleh dihapus.");
   }
 
-  const [result] = await pool.query("DELETE FROM tuser WHERE user_kode = ?", [
+  const [result] = await db.query("DELETE FROM tuser WHERE user_kode = ?", [
     kode,
   ]);
   if (result.affectedRows === 0) {
@@ -24,22 +30,21 @@ const deleteUser = async (kode) => {
 };
 
 // Mengambil daftar semua menu aplikasi
-const getMenus = async () => {
-  const [rows] = await pool.query(
+const getMenus = async (db) => {
+  const [rows] = await db.query(
     "SELECT men_id, men_nama, men_keterangan FROM tmenu ORDER BY men_id",
   );
   return rows;
 };
 
 // Mengambil 1 User beserta hak aksesnya (untuk mode Edit)
-const getUserById = async (kode) => {
-  const [userRows] = await pool.query(
-    "SELECT * FROM tuser WHERE user_kode = ?",
-    [kode],
-  );
+const getUserById = async (db, kode) => {
+  const [userRows] = await db.query("SELECT * FROM tuser WHERE user_kode = ?", [
+    kode,
+  ]);
   if (userRows.length === 0) throw new Error("User tidak ditemukan");
 
-  const [hakAksesRows] = await pool.query(
+  const [hakAksesRows] = await db.query(
     "SELECT hak_men_id, hak_men_view, hak_men_insert, hak_men_edit, hak_men_delete FROM thakuser WHERE hak_user_kode = ?",
     [kode],
   );
@@ -51,8 +56,8 @@ const getUserById = async (kode) => {
 };
 
 // Menyimpan User (Insert / Update) beserta hak aksesnya (Transaksi)
-const saveUser = async (data, isNew) => {
-  const conn = await pool.getConnection();
+const saveUser = async (db, data, isNew) => {
+  const conn = await db.getConnection();
   await conn.beginTransaction();
 
   try {
@@ -122,8 +127,8 @@ const saveUser = async (data, isNew) => {
   }
 };
 
-const changePassword = async (userKode, oldPassword, newPassword) => {
-  const conn = await pool.getConnection();
+const changePassword = async (db, userKode, oldPassword, newPassword) => {
+  const conn = await db.getConnection();
   try {
     // Cek kecocokan password lama
     const [rows] = await conn.query(
@@ -149,6 +154,7 @@ const changePassword = async (userKode, oldPassword, newPassword) => {
 
 module.exports = {
   getUsers,
+  getUserList,
   deleteUser,
   getMenus,
   getUserById,

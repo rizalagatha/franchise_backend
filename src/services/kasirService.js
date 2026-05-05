@@ -1,4 +1,3 @@
-const { pool } = require("../config/database");
 const { format } = require("date-fns");
 const terbilang = require("../utils/terbilang");
 
@@ -44,14 +43,9 @@ const generateNoSetor = async (connection, branchCode) => {
 };
 
 /**
- * Mengambil data Header Invoice (Browse)
- */
-/**
  * Mengambil data header invoice dengan perhitungan nominal dan status piutang
- * @param {string} startDate - Format YYYY-MM-DD
- * @param {string} endDate - Format YYYY-MM-DD
  */
-const fetchHeaders = async (startDate, endDate) => {
+const fetchHeaders = async (db, startDate, endDate) => {
   const query = `
     SELECT 
       h.Inv_nomor AS Nomor,
@@ -103,14 +97,14 @@ const fetchHeaders = async (startDate, endDate) => {
     ORDER BY h.Inv_nomor ASC
   `;
 
-  const [rows] = await pool.query(query, [startDate, endDate]);
+  const [rows] = await db.query(query, [startDate, endDate]);
   return rows;
 };
 
 /**
  * Mengambil data Detail Invoice
  */
-const fetchDetails = async (nomorInvoice) => {
+const fetchDetails = async (db, nomorInvoice) => {
   const query = `
     SELECT 
       d.invd_inv_nomor AS Nomor,
@@ -127,24 +121,22 @@ const fetchDetails = async (nomorInvoice) => {
     ORDER BY d.invd_nourut
   `;
 
-  const [rows] = await pool.query(query, [nomorInvoice]);
+  const [rows] = await db.query(query, [nomorInvoice]);
   return rows;
 };
 
 /**
  * Hapus Invoice (Header & Detail)
  */
-const deleteInvoice = async (nomor) => {
-  const connection = await pool.getConnection();
+const deleteInvoice = async (db, nomor) => {
+  const connection = await db.getConnection();
   try {
     await connection.beginTransaction();
 
-    // Hapus Detail dulu (Opsional jika ada FK cascade, tapi aman jika eksplisit)
     await connection.query("DELETE FROM tinv_dtl WHERE invd_inv_nomor = ?", [
       nomor,
     ]);
 
-    // Hapus Header
     const [result] = await connection.query(
       "DELETE FROM tinv_hdr WHERE Inv_nomor = ?",
       [nomor],
@@ -167,15 +159,15 @@ const deleteInvoice = async (nomor) => {
 /**
  * Mengambil data lengkap untuk form edit
  */
-const loadFormData = async (nomor) => {
-  const [headerRows] = await pool.query(
+const loadFormData = async (db, nomor) => {
+  const [headerRows] = await db.query(
     `SELECT *, DATE_FORMAT(Inv_tanggal, '%Y-%m-%d') as Inv_tanggal FROM tinv_hdr WHERE Inv_nomor = ?`,
     [nomor],
   );
 
   if (headerRows.length === 0) throw new Error("Invoice tidak ditemukan.");
 
-  const [detailRows] = await pool.query(
+  const [detailRows] = await db.query(
     `SELECT d.*, 
      TRIM(CONCAT(a.brg_jeniskaos, ' ', a.brg_tipe, ' ', a.brg_lengan, ' ', a.brg_jeniskain, ' ', a.brg_warna)) AS nama,
      b.brgd_barcode as barcode
@@ -192,12 +184,11 @@ const loadFormData = async (nomor) => {
 /**
  * Menyimpan Invoice (Baru/Ubah)
  */
-const saveInvoice = async (header, items, userKode, isNew) => {
-  const connection = await pool.getConnection();
+const saveInvoice = async (db, header, items, userKode, isNew) => {
+  const connection = await db.getConnection();
   await connection.beginTransaction();
 
   try {
-    // 1. Ambil Kode Cabang dari tabel tperusahaan
     const [perushRows] = await connection.query(
       "SELECT perush_kode FROM tperusahaan LIMIT 1",
     );
@@ -206,13 +197,11 @@ const saveInvoice = async (header, items, userKode, isNew) => {
       throw new Error("Data perusahaan (tperusahaan) belum diatur.");
     }
 
-    // branchCode sekarang berisi "F02", bukan lagi "RIJ"
     const branchCode = perushRows[0].perush_kode;
     const tgl = format(new Date(header.tanggal), "yyyy-MM-dd");
     const serverTime = format(new Date(), "yyyy-MM-dd HH:mm:ss");
-    const cAngsur = format(new Date(), "yyyyMMddHHmmssSSS"); // Simulasi yyymmddHHmmss.z
+    const cAngsur = format(new Date(), "yyyyMMddHHmmssSSS");
 
-    // 1. Inisialisasi & Perhitungan (Logika Delphi)
     let nomorInv = header.nomor;
     const netto = items.reduce(
       (sum, i) => sum + i.jumlah * (i.harga - i.diskon),
@@ -224,7 +213,6 @@ const saveInvoice = async (header, items, userKode, isNew) => {
     const pundiAmal = Number(header.pundiAmal || 0);
     const diskonNominal = Number(header.diskonGlobal || 0);
 
-    // Pastikan string tidak null/undefined (Fix untuk error inv_nosetor)
     let noRek = header.noRek || "";
     let noSetor = header.noSetor || "";
     let bayarTunai = Number(header.rpTunai || 0);
@@ -237,16 +225,13 @@ const saveInvoice = async (header, items, userKode, isNew) => {
       bayarTunaiPiutang = bayarTunaiPiutang - nKembali;
     }
 
-    // 2. Logika No Setor Otomatis
     if (bayarCard !== 0 && (!noSetor || noSetor === "")) {
       noSetor = await generateNoSetor(connection, branchCode);
     }
 
     if (isNew) {
-      // Logic Generate Nomor Invoice Anda ...
       nomorInv = await generateNomorInvoice(connection, branchCode, tgl);
 
-      // Insert Header
       await connection.query(
         `INSERT INTO tinv_hdr (inv_nomor, inv_tanggal, inv_cus_kode, inv_disc, inv_bkrm, 
          inv_rptunai, inv_rpcard, inv_norek, inv_nosetor, inv_pundiamal, user_create, date_create) 
@@ -267,7 +252,6 @@ const saveInvoice = async (header, items, userKode, isNew) => {
         ],
       );
     } else {
-      // Update Header
       await connection.query(
         `UPDATE tinv_hdr SET inv_cus_kode=?, inv_tanggal=?, inv_bkrm=?, inv_disc=?, 
          inv_rptunai=?, inv_rpcard=?, inv_norek=?, inv_nosetor=?, inv_pundiamal=?, 
@@ -289,21 +273,17 @@ const saveInvoice = async (header, items, userKode, isNew) => {
       );
     }
 
-    // 3. Sinkronisasi Data Piutang (Header & Detail)
-    // Bersihkan data lama jika update
     await connection.query("DELETE FROM tpiutang_hdr WHERE ph_inv_nomor = ?", [
       nomorInv,
     ]);
 
-    const phNomor = header.kdCus.trim() + nomorInv.trim(); // ph_nomor sesuai Delphi
+    const phNomor = header.kdCus.trim() + nomorInv.trim();
 
-    // Insert Piutang Header
     await connection.query(
       `INSERT INTO tpiutang_hdr (ph_nomor, ph_tanggal, ph_cus_kode, ph_inv_nomor, ph_nominal) VALUES (?, ?, ?, ?, ?)`,
       [phNomor, tgl, header.kdCus, nomorInv, netto + bykirim],
     );
 
-    // Insert Piutang Detail: Penjualan & Biaya Kirim (Debet)
     await connection.query(
       `INSERT INTO tpiutang_dtl (pd_ph_nomor, pd_tanggal, pd_uraian, pd_debet) VALUES (?, ?, 'Penjualan', ?)`,
       [phNomor, tgl, netto],
@@ -316,7 +296,6 @@ const saveInvoice = async (header, items, userKode, isNew) => {
       );
     }
 
-    // Insert Piutang Detail: Pembayaran Tunai (Kredit)
     if (bayarTunaiPiutang !== 0) {
       await connection.query(
         `INSERT INTO tpiutang_dtl (pd_ph_nomor, pd_tanggal, pd_uraian, pd_kredit) VALUES (?, ?, 'BAYAR TUNAI', ?)`,
@@ -324,7 +303,6 @@ const saveInvoice = async (header, items, userKode, isNew) => {
       );
     }
 
-    // 4. Logika Bayar Card & Setoran
     if (noSetor) {
       await connection.query("DELETE FROM tsetor_hdr WHERE sh_nomor = ?", [
         noSetor,
@@ -332,34 +310,31 @@ const saveInvoice = async (header, items, userKode, isNew) => {
     }
 
     if (bayarCard !== 0) {
-      // Header Setoran
       await connection.query(
         `INSERT INTO tsetor_hdr (
         sh_nomor, sh_cus_kode, sh_tanggal, sh_jenis, 
         sh_nominal, sh_norek, sh_tgltransfer, sh_otomatis, 
         user_create, date_create
       ) 
-      VALUES (?, ?, ?, 1, ?, ?, ?, 'Y', ?, ?)`, // Tambahkan kolom sh_tgltransfer
+      VALUES (?, ?, ?, 1, ?, ?, ?, 'Y', ?, ?)`,
         [
           noSetor,
           header.kdCus,
           tgl,
           bayarCard,
           header.noRek,
-          tgl, // Masukkan tgl (tanggal invoice) sebagai default tanggal transfer
+          tgl,
           userKode,
           serverTime,
         ],
       );
 
-      // Detail Setoran
       await connection.query(
         `INSERT INTO tsetor_dtl (sd_sh_nomor, sd_tanggal, sd_inv, sd_bayar, sd_ket, sd_angsur, sd_nourut) 
          VALUES (?, ?, ?, ?, 'PEMBAYARAN DARI KASIR', ?, 1)`,
         [noSetor, tgl, nomorInv, bayarCard, cAngsur],
       );
 
-      // Kredit ke Piutang dari Card
       await connection.query(
         `INSERT INTO tpiutang_dtl (pd_ph_nomor, pd_tanggal, pd_uraian, pd_kredit, pd_ket, pd_sd_angsur) 
          VALUES (?, ?, 'BAYAR CARD', ?, ?, ?)`,
@@ -367,23 +342,21 @@ const saveInvoice = async (header, items, userKode, isNew) => {
       );
     }
 
-    // 5. Update Detail Barang
     await connection.query("DELETE FROM tinv_dtl WHERE invd_inv_nomor = ?", [
       nomorInv,
     ]);
     const detailValues = items.map((item, index) => [
-      nomorInv, // 1. invd_inv_nomor
-      item.kode, // 2. invd_kode
-      item.ukuran, // 3. invd_ukuran
-      item.jumlah, // 4. invd_jumlah
-      item.harga, // 5. invd_harga
-      item.hpp || 0, // 6. invd_hpp (PASTIKAN di Vue namanya 'hpp')
-      0, // 7. invd_disc (Persen) - Set 0 dulu karena di Vue belum ada field %
-      item.diskon || 0, // 8. invd_diskon (Nominal) - Pakai item.diskon sesuai data dari Vue
-      index + 1, // 9. invd_nourut
+      nomorInv,
+      item.kode,
+      item.ukuran,
+      item.jumlah,
+      item.harga,
+      item.hpp || 0,
+      0,
+      item.diskon || 0,
+      index + 1,
     ]);
 
-    // Pastikan urutan kolom di INSERT match dengan urutan di atas!
     await connection.query(
       `INSERT INTO tinv_dtl (invd_inv_nomor, invd_kode, invd_ukuran, invd_jumlah, invd_harga, invd_hpp, invd_disc, invd_diskon, invd_nourut) 
        VALUES ?`,
@@ -407,13 +380,11 @@ const saveInvoice = async (header, items, userKode, isNew) => {
 /**
  * Mengambil data lengkap untuk cetak struk kasir (58mm)
  */
-const getPrintDataKasir = async (nomorInvoice, userNama) => {
-  // 1. Ambil Data Perusahaan (Asumsi kode F01 atau ambil dari config)
-  const [perusahaan] = await pool.query(
+const getPrintDataKasir = async (db, nomorInvoice, userNama) => {
+  const [perusahaan] = await db.query(
     "SELECT perush_nama, perush_alamat, perush_telp FROM tperusahaan LIMIT 1",
   );
 
-  // 2. Query Utama (Adaptasi dari Delphi SQL ftsreport)
   const query = `
     SELECT 
       h.Inv_nomor AS nomor,
@@ -440,10 +411,10 @@ const getPrintDataKasir = async (nomorInvoice, userNama) => {
     ORDER BY d.invd_nourut
   `;
 
-  const [rows] = await pool.query(query, [nomorInvoice]);
+  const [rows] = await db.query(query, [nomorInvoice]);
   if (rows.length === 0) throw new Error("Data Invoice tidak ditemukan.");
 
-  const first = rows[0]; // Pastikan mendefinisikan 'first' di sini
+  const first = rows[0];
 
   const totalItem = rows.reduce(
     (sum, row) => sum + Number(row.subTotalItem),
@@ -478,7 +449,6 @@ const getPrintDataKasir = async (nomorInvoice, userNama) => {
       biayaKirim: first.biayaKirim,
       grandTotal: grandTotal,
       bayar: totalBayar,
-      // Logika Rincian Kembalian
       kembaliGross: totalBayar - grandTotal,
       pundiAmal: pundiAmal,
       nettoKembali: totalBayar - grandTotal - pundiAmal,
@@ -486,13 +456,11 @@ const getPrintDataKasir = async (nomorInvoice, userNama) => {
   };
 };
 
-const getPrintDataA4 = async (nomorInvoice) => {
-  // 1. Ambil Info Perusahaan
-  const [perusahaan] = await pool.query(
+const getPrintDataA4 = async (db, nomorInvoice) => {
+  const [perusahaan] = await db.query(
     "SELECT perush_nama, perush_alamat, perush_telp FROM tperusahaan LIMIT 1",
   );
 
-  // 2. Query Gabungan (Hdr + Cus + Dtl)
   const query = `
     SELECT 
       h.Inv_nomor, DATE_FORMAT(h.Inv_tanggal, '%d-%m-%Y') as inv_tanggal,
@@ -508,7 +476,7 @@ const getPrintDataA4 = async (nomorInvoice) => {
     ORDER BY d.invd_nourut
   `;
 
-  const [rows] = await pool.query(query, [nomorInvoice]);
+  const [rows] = await db.query(query, [nomorInvoice]);
   if (rows.length === 0) throw new Error("Invoice tidak ditemukan");
 
   const first = rows[0];

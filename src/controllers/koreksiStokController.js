@@ -10,8 +10,12 @@ const getHeaders = async (req, res) => {
         .json({ message: "Filter tanggal (startDate, endDate) diperlukan." });
     }
 
-    // Kirim cabang ke service
-    const headers = await koreksiStokService.fetchHeaders(startDate, endDate);
+    // Kirim req.db ke service
+    const headers = await koreksiStokService.fetchHeaders(
+      req.db,
+      startDate,
+      endDate,
+    );
     res.json(headers);
   } catch (error) {
     res.status(500).json({
@@ -24,7 +28,7 @@ const getHeaders = async (req, res) => {
 const getDetails = async (req, res) => {
   try {
     const { nomor } = req.params;
-    const details = await koreksiStokService.fetchDetails(nomor);
+    const details = await koreksiStokService.fetchDetails(req.db, nomor);
     res.json(details);
   } catch (error) {
     res.status(500).json({
@@ -37,7 +41,7 @@ const getDetails = async (req, res) => {
 const deleteKoreksiData = async (req, res) => {
   try {
     const { nomor } = req.params;
-    const result = await koreksiStokService.deleteKoreksi(nomor);
+    const result = await koreksiStokService.deleteKoreksi(req.db, nomor);
     res.json(result);
   } catch (error) {
     if (error.message === "Nomor koreksi tidak ditemukan.") {
@@ -56,7 +60,7 @@ const deleteKoreksiData = async (req, res) => {
 const getFormData = async (req, res) => {
   try {
     const { nomor } = req.params;
-    const data = await koreksiStokService.loadFormData(nomor);
+    const data = await koreksiStokService.loadFormData(req.db, nomor);
     res.json(data);
   } catch (error) {
     res.status(404).json({ message: error.message });
@@ -70,16 +74,17 @@ const saveData = async (req, res) => {
   try {
     const { header, items, isNew } = req.body;
     const userKode = req.user.kode;
-    // Hapus userCabang
+
     if (!header || !header.tanggal) {
       return res.status(400).json({ message: "Data header tidak lengkap." });
     }
-    // Panggil service TANPA userCabang
+
     const result = await koreksiStokService.saveKoreksi(
+      req.db,
       header,
       items,
       userKode,
-      isNew
+      isNew,
     );
     res.status(isNew ? 201 : 200).json(result);
   } catch (error) {
@@ -101,9 +106,10 @@ const getBarcodeLookup = async (req, res) => {
     }
 
     const result = await koreksiStokService.lookupBarcodeKoreksi(
+      req.db,
       barcode,
       tanggal,
-      nomor
+      nomor,
     );
     res.json(result);
   } catch (error) {
@@ -127,10 +133,11 @@ const getF1Lookup = async (req, res) => {
     const limitNum = parseInt(itemsPerPage, 10);
 
     const result = await koreksiStokService.lookupF1Koreksi(
+      req.db,
       term,
       tanggal,
       pageNum,
-      limitNum
+      limitNum,
     );
     res.json(result); // Kirim { items, total }
   } catch (error) {
@@ -145,7 +152,7 @@ const getPrintData = async (req, res) => {
   try {
     const { nomor } = req.params;
     const userNama = req.user.nama; // Ambil nama dari token
-    const data = await koreksiStokService.getPrintData(nomor, userNama);
+    const data = await koreksiStokService.getPrintData(req.db, nomor, userNama);
     res.json(data);
   } catch (error) {
     res.status(404).json({ message: error.message });
@@ -156,9 +163,9 @@ module.exports = {
   getHeaders,
   getDetails,
   deleteKoreksiData,
-  getFormData, // <-- Baru
-  saveData, // <-- Baru
-  getBarcodeLookup, // <-- Baru
-  getPrintData, // <-- Baru
+  getFormData,
+  saveData,
+  getBarcodeLookup,
+  getPrintData,
   getF1Lookup,
 };

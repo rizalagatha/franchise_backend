@@ -6,7 +6,12 @@ const getHeaders = async (req, res) => {
     if (!startDate || !endDate) {
       return res.status(400).json({ message: "Filter tanggal diperlukan." });
     }
-    const data = await mintaBarangService.fetchHeaders(startDate, endDate);
+    // Kirim req.db ke service
+    const data = await mintaBarangService.fetchHeaders(
+      req.db,
+      startDate,
+      endDate,
+    );
     res.json(data);
   } catch (error) {
     res
@@ -18,7 +23,7 @@ const getHeaders = async (req, res) => {
 const getDetails = async (req, res) => {
   try {
     const { nomor } = req.params;
-    const data = await mintaBarangService.fetchDetails(nomor);
+    const data = await mintaBarangService.fetchDetails(req.db, nomor);
     res.json(data);
   } catch (error) {
     res.status(500).json({
@@ -31,7 +36,7 @@ const getDetails = async (req, res) => {
 const removeRequest = async (req, res) => {
   try {
     const { nomor } = req.params;
-    const result = await mintaBarangService.deleteRequest(nomor);
+    const result = await mintaBarangService.deleteRequest(req.db, nomor);
     res.json(result);
   } catch (error) {
     res
@@ -43,7 +48,7 @@ const removeRequest = async (req, res) => {
 const getFormData = async (req, res) => {
   try {
     const { nomor } = req.params;
-    const data = await mintaBarangService.loadFormData(nomor);
+    const data = await mintaBarangService.loadFormData(req.db, nomor);
     res.json(data);
   } catch (error) {
     res.status(404).json({ message: error.message });
@@ -62,6 +67,7 @@ const saveData = async (req, res) => {
     }
 
     const result = await mintaBarangService.saveRequest(
+      req.db,
       header,
       items,
       userKode,
@@ -82,6 +88,7 @@ const lookupBarang = async (req, res) => {
     const searchKeyword = keyword || term || "";
 
     const data = await mintaBarangService.searchBarangPusat(
+      req.db,
       searchKeyword,
       page,
       itemsPerPage,
@@ -97,6 +104,7 @@ const lookupBarang = async (req, res) => {
 const getPrintData = async (req, res) => {
   try {
     const data = await mintaBarangService.getPrintData(
+      req.db,
       req.params.nomor,
       req.user.nama,
     );
@@ -113,5 +121,5 @@ module.exports = {
   getFormData,
   saveData,
   lookupBarang,
-  getPrintData, // <--- Jangan lupa ekspor fungsi baru ini
+  getPrintData,
 };

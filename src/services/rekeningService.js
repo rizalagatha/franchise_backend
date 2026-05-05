@@ -1,10 +1,8 @@
-const { pool } = require("../config/database");
-
 /**
  * 1. Mengambil data header (master) rekening bank.
  * Sesuai SQLMaster Delphi TfrmBrowRekening.btnRefreshClick.
  */
-const fetchHeaders = async () => {
+const fetchHeaders = async (db) => {
   const query = `
         SELECT 
             h.rek_nomor AS NoRekening,
@@ -13,7 +11,7 @@ const fetchHeaders = async () => {
         FROM trekening h
         ORDER BY h.rek_namabank, h.rek_nomor
     `;
-  const [rows] = await pool.query(query);
+  const [rows] = await db.query(query);
   return rows;
 };
 
@@ -21,9 +19,9 @@ const fetchHeaders = async () => {
  * 2. Mengambil detail satu rekening berdasarkan nomor.
  * Sesuai Delphi loaddata.
  */
-const getRekeningById = async (nomorRekening) => {
+const getRekeningById = async (db, nomorRekening) => {
   const query = "SELECT * FROM trekening WHERE rek_nomor = ?";
-  const [rows] = await pool.query(query, [nomorRekening]);
+  const [rows] = await db.query(query, [nomorRekening]);
   if (rows.length === 0) {
     return null; // Tidak ditemukan (mode Baru)
   }
@@ -39,7 +37,7 @@ const getRekeningById = async (nomorRekening) => {
  * 3. Menyimpan data rekening (Create / Update).
  * Sesuai Delphi simpandata.
  */
-const saveRekening = async (rekeningData, isNew) => {
+const saveRekening = async (db, rekeningData, isNew) => {
   const { rek_nomor, rek_namabank, rek_atasnama } = rekeningData;
 
   // Validasi (from btnSimpanClick)
@@ -55,9 +53,9 @@ const saveRekening = async (rekeningData, isNew) => {
 
   if (isNew) {
     // Cek duplikat (penting untuk mode 'Baru')
-    const [existing] = await pool.query(
+    const [existing] = await db.query(
       "SELECT 1 FROM trekening WHERE rek_nomor = ?",
-      [rek_nomor.trim()]
+      [rek_nomor.trim()],
     );
     if (existing.length > 0) {
       throw new Error(`No. Rekening ${rek_nomor} sudah ada.`);
@@ -82,7 +80,7 @@ const saveRekening = async (rekeningData, isNew) => {
     ];
   }
 
-  const [result] = await pool.query(query, params);
+  const [result] = await db.query(query, params);
   if (result.affectedRows === 0) {
     throw new Error("Gagal menyimpan data, tidak ada baris yang terpengaruh.");
   }
@@ -93,7 +91,7 @@ const saveRekening = async (rekeningData, isNew) => {
  * 4. Lookup F1 untuk dialog form.
  * Sesuai Delphi FormKeyDown F1.
  */
-const lookupRekeningF1 = async (term, page, itemsPerPage) => {
+const lookupRekeningF1 = async (db, term, page, itemsPerPage) => {
   const offset = (page - 1) * itemsPerPage;
   const searchTermLike = term ? `%${term.trim()}%` : null;
 
@@ -106,7 +104,7 @@ const lookupRekeningF1 = async (term, page, itemsPerPage) => {
   }
 
   const countQuery = `SELECT COUNT(*) as total FROM trekening ${whereClause}`;
-  const [countRows] = await pool.query(countQuery, params);
+  const [countRows] = await db.query(countQuery, params);
   const total = countRows[0].total;
 
   const dataQuery = `
@@ -117,7 +115,7 @@ const lookupRekeningF1 = async (term, page, itemsPerPage) => {
         LIMIT ? OFFSET ?
     `;
   const dataParams = [...params, itemsPerPage, offset];
-  const [items] = await pool.query(dataQuery, dataParams);
+  const [items] = await db.query(dataQuery, dataParams);
 
   return { items, total };
 };
@@ -126,16 +124,16 @@ const lookupRekeningF1 = async (term, page, itemsPerPage) => {
  * 5. Menghapus rekening bank.
  * Sesuai Delphi cxButton4Click.
  */
-const deleteRekening = async (nomorRekening) => {
+const deleteRekening = async (db, nomorRekening) => {
   // Di sini Anda mungkin perlu cek tmutasibank jika ada relasi
   // ...
 
-  const connection = await pool.getConnection();
+  const connection = await db.getConnection();
   try {
     await connection.beginTransaction();
     const [result] = await connection.query(
       "DELETE FROM trekening WHERE rek_nomor = ?",
-      [nomorRekening]
+      [nomorRekening],
     );
 
     if (result.affectedRows === 0) {
@@ -157,5 +155,4 @@ module.exports = {
   saveRekening,
   lookupRekeningF1,
   deleteRekening,
-  // fetchDetails dihapus
 };

@@ -1,9 +1,7 @@
-const { pool } = require("../config/database");
-
 /**
  * Mengambil semua data customer untuk browse.
  */
-const fetchAllCustomers = async () => {
+const fetchAllCustomers = async (db) => {
   const query = `
         SELECT 
             c.cus_kode AS Kode,
@@ -18,16 +16,16 @@ const fetchAllCustomers = async () => {
         FROM tcustomer c
         ORDER BY c.cus_kode ASC 
     `;
-  const [rows] = await pool.query(query);
+  const [rows] = await db.query(query);
   return rows;
 };
 
 /**
  * Mengambil detail satu customer berdasarkan kode.
  */
-const getCustomerById = async (customerCode) => {
+const getCustomerById = async (db, customerCode) => {
   const query = "SELECT * FROM tcustomer WHERE cus_kode = ?";
-  const [rows] = await pool.query(query, [customerCode]);
+  const [rows] = await db.query(query, [customerCode]);
   if (rows.length === 0) {
     throw new Error("Customer tidak ditemukan.");
   }
@@ -37,9 +35,9 @@ const getCustomerById = async (customerCode) => {
 /**
  * Membuat customer baru dengan prefix dari tperusahaan
  */
-const createCustomer = async (customerData, userKode) => {
+const createCustomer = async (db, customerData, userKode) => {
   // 1. Ambil Kode Cabang Aktif dari tperusahaan
-  const [perushRows] = await pool.query(
+  const [perushRows] = await db.query(
     "SELECT perush_kode FROM tperusahaan LIMIT 1",
   );
 
@@ -54,7 +52,7 @@ const createCustomer = async (customerData, userKode) => {
         FROM tcustomer 
         WHERE LEFT(cus_kode, 3) = ?
     `;
-  const [nomorRows] = await pool.query(nomorQuery, [branchCode]);
+  const [nomorRows] = await db.query(nomorQuery, [branchCode]);
   const nextNum = parseInt(nomorRows[0].lastNum, 10) + 1;
   const newCustomerCode = `${branchCode}${String(nextNum).padStart(5, "0")}`;
 
@@ -97,7 +95,7 @@ const createCustomer = async (customerData, userKode) => {
     userKode, // user_create tetap menggunakan ID orang yang login
   ];
 
-  await pool.query(insertQuery, values);
+  await db.query(insertQuery, values);
 
   return {
     kode: newCustomerCode,
@@ -108,7 +106,7 @@ const createCustomer = async (customerData, userKode) => {
 /**
  * Memperbarui data customer
  */
-const updateCustomer = async (customerCode, customerData, userKode) => {
+const updateCustomer = async (db, customerCode, customerData, userKode) => {
   const {
     cus_nama,
     cus_alamat,
@@ -152,7 +150,7 @@ const updateCustomer = async (customerCode, customerData, userKode) => {
     customerCode,
   ];
 
-  const [result] = await pool.query(updateQuery, values);
+  const [result] = await db.query(updateQuery, values);
 
   if (result.affectedRows === 0) {
     throw new Error("Customer tidak ditemukan atau tidak ada perubahan.");

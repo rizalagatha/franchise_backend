@@ -1,10 +1,9 @@
-const { pool } = require("../config/database");
 const { format } = require("date-fns");
 
 /**
  * Mengambil data Header FSK (Browse)
  */
-const fetchHeaders = async (startDate, endDate, branchCode) => {
+const fetchHeaders = async (db, startDate, endDate, branchCode) => {
   const query = `
     SELECT 
       h.fsk_nomor AS Nomor,
@@ -18,14 +17,14 @@ const fetchHeaders = async (startDate, endDate, branchCode) => {
     ORDER BY h.fsk_tanggal ASC
   `;
 
-  const [rows] = await pool.query(query, [branchCode, startDate, endDate]);
+  const [rows] = await db.query(query, [branchCode, startDate, endDate]);
   return rows;
 };
 
 /**
  * Mengambil detail setoran per nomor
  */
-const fetchDetails = async (nomor) => {
+const fetchDetails = async (db, nomor) => {
   const query = `
     SELECT 
       fskd2_nomor AS Nomor,
@@ -36,15 +35,15 @@ const fetchDetails = async (nomor) => {
     ORDER BY fskd2_jenis ASC
   `;
 
-  const [rows] = await pool.query(query, [nomor]);
+  const [rows] = await db.query(query, [nomor]);
   return rows;
 };
 
 /**
  * Menghapus data FSK (Header & Detail)
  */
-const deleteFSK = async (nomor) => {
-  const connection = await pool.getConnection();
+const deleteFSK = async (db, nomor) => {
+  const connection = await db.getConnection();
   await connection.beginTransaction();
 
   try {
@@ -73,8 +72,7 @@ const deleteFSK = async (nomor) => {
 };
 
 /**
- * Menghasilkan Nomor FSK Otomatis
- * Format: [KDCAB].FSK.[YYMM].[NOMOR_URUT]
+ * Menghasilkan Nomor FSK Otomatis (Helper fungsi ini tidak perlu db karena pakai connection)
  */
 const generateNomorFSK = async (connection, branchCode, date) => {
   const yyMm = format(new Date(date), "yyMM");
@@ -94,8 +92,8 @@ const generateNomorFSK = async (connection, branchCode, date) => {
 /**
  * Menyimpan data FSK (Insert atau Update)
  */
-const saveFSK = async (header, detail1, detail2, userKode, isNew) => {
-  const connection = await pool.getConnection();
+const saveFSK = async (db, header, detail1, detail2, userKode, isNew) => {
+  const connection = await db.getConnection();
   await connection.beginTransaction();
 
   try {
@@ -167,28 +165,23 @@ const saveFSK = async (header, detail1, detail2, userKode, isNew) => {
 
 /**
  * Menghasilkan Rekap Data Otomatis berdasarkan Tanggal dan Kasir
- * Sesuai prosedur loadnew di Delphi
  */
-const generateRekapData = async (tanggal, kasir) => {
-  // 1. Ambil Kode Cabang RESMI dari database (tperusahaan)
-  const [perush] = await pool.query(
+const generateRekapData = async (db, tanggal, kasir) => {
+  // 1. Ambil Kode Cabang RESMI dari database
+  const [perush] = await db.query(
     "SELECT perush_kode FROM tperusahaan LIMIT 1",
   );
   const branchCode = perush[0]?.perush_kode || "F01";
 
-  // 2. Cek apakah sudah ada data FSK tersimpan untuk tanggal & kasir ini
-  // Sesuai logika Delphi: Jika sudah ada, nanti di frontend diarahkan ke Mode Edit
-  const [existing] = await pool.query(
+  const [existing] = await db.query(
     `SELECT fsk_nomor FROM tform_setorkasir_hdr 
      WHERE fsk_tanggal = ? AND fsk_kasir = ? AND LEFT(fsk_nomor, 3) = ?`,
     [tanggal, kasir, branchCode],
   );
 
-  // --- QUERY DETAIL 1: RINCIAN TRANSAKSI ---
-  // Kita pastikan filter Cabang menggunakan branchCode hasil query tperusahaan
   let queryDtl1 = `
     SELECT * FROM (
-      /* 1. SETORAN KASIR TUNAI (Dari Penjualan Langsung/Invoice) */
+      /* 1. SETORAN KASIR TUNAI */
       SELECT 'SETORAN KASIR TUNAI' AS jenis, h.inv_tanggal AS tgltrf, h.inv_cus_kode AS kdcus, 
              c.cus_nama AS nmcus, c.cus_alamat AS alamat, h.inv_nomor AS inv, h.inv_rptunai AS nominal
       FROM tinv_hdr h
@@ -200,7 +193,7 @@ const generateRekapData = async (tanggal, kasir) => {
 
       UNION ALL
 
-      /* 2. PEMBAYARAN TUNAI (Dari Pelunasan Piutang - sh_jenis = 0) */
+      /* 2. PEMBAYARAN TUNAI */
       SELECT 'PEMBAYARAN TUNAI' AS jenis, h.sh_tanggal AS tgltrf, h.sh_cus_kode AS kdcus, 
              c.cus_nama AS nmcus, c.cus_alamat AS alamat, 
              (SELECT sd_inv FROM tsetor_dtl WHERE sd_sh_nomor = h.sh_nomor LIMIT 1) AS inv, h.sh_nominal AS nominal
@@ -213,7 +206,7 @@ const generateRekapData = async (tanggal, kasir) => {
 
       UNION ALL
 
-      /* 3. PEMBAYARAN TRANSFER (Dari Pelunasan Piutang - sh_jenis = 1) */
+      /* 3. PEMBAYARAN TRANSFER */
       SELECT 'PEMBAYARAN TRANSFER' AS jenis, h.sh_tgltransfer AS tgltrf, h.sh_cus_kode AS kdcus, 
              c.cus_nama AS nmcus, c.cus_alamat AS alamat, 
              (SELECT sd_inv FROM tsetor_dtl WHERE sd_sh_nomor = h.sh_nomor LIMIT 1) AS inv, h.sh_nominal AS nominal
@@ -225,9 +218,6 @@ const generateRekapData = async (tanggal, kasir) => {
         ${kasir !== "ALL" ? "AND h.user_create = ?" : ""}
     ) x ORDER BY kdcus, inv`;
 
-  // Susun parameter berdasarkan kondisi Kasir (ALL atau User Tertentu)
-  // Jika ALL: 2 param per UNION (branch, tanggal) x 3 = 6 params
-  // Jika User: 3 param per UNION (branch, tanggal, kasir) x 3 = 9 params
   const paramsDtl1 =
     kasir === "ALL"
       ? [branchCode, tanggal, branchCode, tanggal, branchCode, tanggal]
@@ -243,12 +233,9 @@ const generateRekapData = async (tanggal, kasir) => {
           kasir,
         ];
 
-  // Eksekusi Rincian Transaksi
-  const [detail1] = await pool.query(queryDtl1, paramsDtl1);
+  const [detail1] = await db.query(queryDtl1, paramsDtl1);
 
-  // --- QUERY DETAIL 2: RINGKASAN JENIS (Agregasi dari Query 1) ---
-  // Menggunakan subquery agar nominal yang muncul di "Ringkasan Jenis Setoran" otomatis akurat
-  const [detail2] = await pool.query(
+  const [detail2] = await db.query(
     `SELECT jenis, SUM(nominal) as nominal FROM (${queryDtl1}) summary GROUP BY jenis`,
     paramsDtl1,
   );
@@ -261,20 +248,20 @@ const generateRekapData = async (tanggal, kasir) => {
   };
 };
 
-const loadFormData = async (nomor) => {
-  const [headerRows] = await pool.query(
+const loadFormData = async (db, nomor) => {
+  const [headerRows] = await db.query(
     `SELECT *, DATE_FORMAT(fsk_tanggal, '%Y-%m-%d') as fsk_tanggal FROM tform_setorkasir_hdr WHERE fsk_nomor = ?`,
     [nomor],
   );
 
   if (headerRows.length === 0) throw new Error("Data setoran tidak ditemukan.");
 
-  const [detailRows] = await pool.query(
+  const [detailRows] = await db.query(
     `SELECT fskd2_jenis as jenis, fskd2_nominal as nominal FROM tform_setorkasir_dtl2 WHERE fskd2_nomor = ?`,
     [nomor],
   );
 
-  const [detailTransaksi] = await pool.query(
+  const [detailTransaksi] = await db.query(
     `SELECT fskd_jenis as jenis, fskd_tgltrf as tgltrf, fskd_kdcus as kdcus, fskd_inv as inv, fskd_nominal as nominal 
      FROM tform_setorkasir_dtl WHERE fskd_nomor = ?`,
     [nomor],
@@ -290,14 +277,14 @@ const loadFormData = async (nomor) => {
 /**
  * Mengambil data lengkap untuk cetak Laporan FSK
  */
-const getPrintDataFSK = async (nomor) => {
+const getPrintDataFSK = async (db, nomor) => {
   // 1. Ambil Info Perusahaan
-  const [perusahaan] = await pool.query(
+  const [perusahaan] = await db.query(
     "SELECT perush_nama, perush_alamat, perush_telp FROM tperusahaan LIMIT 1",
   );
 
   // 2. Ambil Header FSK
-  const [header] = await pool.query(
+  const [header] = await db.query(
     `SELECT h.fsk_nomor, DATE_FORMAT(h.fsk_tanggal, '%d-%m-%Y') as fsk_tanggal, 
             h.fsk_kasir, DATE_FORMAT(h.date_create, '%d-%m-%Y %T') as created_at
      FROM tform_setorkasir_hdr h 
@@ -308,7 +295,7 @@ const getPrintDataFSK = async (nomor) => {
   if (header.length === 0) throw new Error("Data FSK tidak ditemukan.");
 
   // 3. Ambil Detail 1 (Rincian Transaksi)
-  const [detail1] = await pool.query(
+  const [detail1] = await db.query(
     `SELECT d.fskd_jenis as jenis, DATE_FORMAT(d.fskd_tgltrf, '%d-%m-%Y') as tgl_trf, 
             d.fskd_kdcus as kdcus, c.cus_nama as nmcus, d.fskd_inv as inv, d.fskd_nominal as nominal
      FROM tform_setorkasir_dtl d
@@ -318,7 +305,7 @@ const getPrintDataFSK = async (nomor) => {
   );
 
   // 4. Ambil Detail 2 (Ringkasan Jenis)
-  const [detail2] = await pool.query(
+  const [detail2] = await db.query(
     `SELECT fskd2_jenis as jenis, fskd2_nominal as nominal 
      FROM tform_setorkasir_dtl2 
      WHERE fskd2_nomor = ?`,

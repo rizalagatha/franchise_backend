@@ -1,97 +1,68 @@
-const { pool } = require("../config/database");
 const jwt = require("jsonwebtoken");
+const bcrypt = require("bcrypt"); // Asumsi menggunakan bcrypt
+const { masterPool } = require("../config/database");
 
-/**
- * Mengambil hak akses (permissions) untuk seorang user.
- * (Fungsi ini tetap sama, karena Anda bilang otorisasi menuId sama)
- * @param {string} userKode - Kode user.
- * @returns {Promise<Array>}
- */
-const getPermissions = async (userKode) => {
-  const query = `
-        SELECT 
-            m.men_id AS id,
-            m.men_nama AS name,
-            m.web_route AS path,
-            h.hak_men_view AS 'view',
-            h.hak_men_insert AS 'insert',
-            h.hak_men_edit AS 'edit',
-            h.hak_men_delete AS 'delete'
-        FROM thakuser h
-        JOIN tmenu m ON h.hak_men_id = m.men_id
-        WHERE h.hak_user_kode = ? AND m.web_route IS NOT NULL AND m.web_route <> '';
-    `;
-  const [permissions] = await pool.query(query, [userKode]);
-  return permissions.map((p) => ({
-    ...p,
-    view: p.view === "Y",
-    insert: p.insert === "Y",
-    edit: p.edit === "Y",
-    delete: p.delete === "Y",
-  }));
-};
-
-/**
- * Memproses percobaan login (Versi Franchise Sederhana).
- * @param {string} kodeUser - Kode user yang login.
- * @param {string} password - Password user.
- * @returns {Promise<object>}
- */
 const loginUser = async (kodeUser, password) => {
-  // 1. Verifikasi user (Sama seperti Delphi)
-  // Query Delphi: 'select * from tuser where user_aktif="Y" and upper(user_kode) = ...'
-  const [users] = await pool.query(
-    "SELECT * FROM tuser WHERE UPPER(user_kode) = ? AND user_password = ?",
-    [kodeUser.toUpperCase(), password]
-  );
+  // 1. Cari user di Master Database beserta konfigurasi cabangnya
+  // Sesuaikan nama kolom 'username'/'user_kode' dengan struktur tabel master kamu
+  const queryUser = `
+    SELECT u.*, c.db_host, c.db_name, c.db_user, c.db_pass, c.nama_cabang 
+    FROM users u
+    LEFT JOIN cabang c ON u.cabang_id = c.id
+    WHERE u.username = ? 
+  `;
+  const [users] = await masterPool.query(queryUser, [kodeUser]);
 
   if (users.length === 0) {
-    // Delphi: MessageDlg('user atau password salah.', ...)
-    throw new Error("User atau password salah.");
+    throw new Error("User tidak ditemukan.");
   }
 
   const user = users[0];
 
-  // 2. Cek user_aktif (Sama seperti Delphi)
-  if (user.user_aktif !== "Y") {
-    // Delphi: MessageDlg('User tsb sudah tidak aktif.', ...)
-    throw new Error("User ini sudah tidak aktif.");
+  // 2. Verifikasi Password
+  // Catatan: Jika password dari sistem Delphi lama menggunakan MD5 atau Plaintext,
+  // ubah pengecekan ini sesuai dengan algoritma hashing Delphi tersebut.
+  const isPasswordValid = await bcrypt.compare(password, user.password);
+  if (!isPasswordValid) {
+    throw new Error("Password salah.");
   }
 
-  // 3. Buat Payload Sederhana (Tanpa Cabang/Gudang)
-  // Delphi: frmmenu.KDUSER := ... dan frmmenu.NMUSER := ...
-  const userForToken = {
-    kode: user.user_kode,
-    nama: user.user_nama,
+  // 3. Ambil Permissions (Hak Akses) dari tabel thakuser
+  const queryPermissions = `SELECT * FROM thakuser WHERE hak_user_kode = ?`;
+  const [permissions] = await masterPool.query(queryPermissions, [kodeUser]);
 
-    // Kirim string kosong agar frontend (authStore) tidak error
-    cabang: "",
-    cabangNama: "",
-
-    // Default ini ke false, karena tidak ada logika cabang
-    canApproveCorrection: false,
-    canApprovePrice: false,
+  // 4. Susun Payload JWT (Hanya simpan data esensial di dalam token)
+  const payload = {
+    kode: user.username,
+    role: user.role,
+    cabang: {
+      id: user.cabang_id,
+      nama: user.nama_cabang,
+      db_host: user.db_host,
+      db_name: user.db_name,
+      db_user: user.db_user,
+      db_pass: user.db_pass,
+    },
   };
 
-  // 4. Buat Token JWT
-  const token = jwt.sign(userForToken, process.env.JWT_SECRET || "RAHASIA", {
-    expiresIn: "8h",
+  // 5. Generate Token
+  const token = jwt.sign(payload, process.env.JWT_SECRET, {
+    expiresIn: "12h",
   });
 
-  // 5. Get Permissions (Logika dari Retail yang kita pertahankan)
-  const permissions = await getPermissions(user.user_kode);
-
-  // 6. Return payload final (mirip retail, tapi tanpa data cabang)
+  // 6. Kembalikan data untuk AuthController
   return {
-    message: "Login berhasil",
     token,
-    user: userForToken,
+    user: {
+      kode: user.username,
+      nama: user.username, // Gunakan username sebagai nama, karena kolom nama_lengkap tidak ada
+      cabang: user.cabang_id,
+      cabangNama: user.nama_cabang,
+    },
     permissions,
   };
 };
 
-// Ekspor fungsi yang sudah disederhanakan
 module.exports = {
   loginUser,
-  // Kita tidak lagi mengekspor finalizeLoginWithBranch
 };

@@ -5,12 +5,13 @@ const {
   verifyToken,
   checkPermission,
 } = require("../middlewares/authMiddleware");
+const { injectBranchDb } = require("../middlewares/branchMiddleware");
 
 const MENU_ID = "52"; // Menu ID untuk Laporan Penjualan
 
 router.get(
   "/",
-  [verifyToken, checkPermission(MENU_ID, "view")],
+  [verifyToken, injectBranchDb, checkPermission(MENU_ID, "view")],
   laporanPenjualanController.getLaporanPenjualan,
 );
 

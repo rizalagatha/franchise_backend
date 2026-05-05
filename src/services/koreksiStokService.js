@@ -1,10 +1,9 @@
-const { pool } = require("../config/database");
 const { format } = require("date-fns");
 
 /**
  * 1. Mengambil data header koreksi stok (tkor_hdr) berdasarkan periode.
  */
-const fetchHeaders = async (startDate, endDate) => {
+const fetchHeaders = async (db, startDate, endDate) => {
   const headerQuery = `
         SELECT 
             h.kor_nomor AS Nomor,
@@ -16,7 +15,7 @@ const fetchHeaders = async (startDate, endDate) => {
         WHERE h.kor_tanggal BETWEEN ? AND ? 
         ORDER BY h.kor_tanggal DESC, h.kor_nomor DESC
     `;
-  const [headers] = await pool.query(headerQuery, [startDate, endDate]);
+  const [headers] = await db.query(headerQuery, [startDate, endDate]);
 
   const nominalQuery = `
         SELECT 
@@ -27,7 +26,7 @@ const fetchHeaders = async (startDate, endDate) => {
         WHERE h.kor_tanggal BETWEEN ? AND ? 
         GROUP BY d.kord_kor_nomor
     `;
-  const [nominals] = await pool.query(nominalQuery, [startDate, endDate]);
+  const [nominals] = await db.query(nominalQuery, [startDate, endDate]);
 
   const nominalMap = new Map(
     nominals.map((item) => [item.Nomor, item.Nominal]),
@@ -42,7 +41,7 @@ const fetchHeaders = async (startDate, endDate) => {
 /**
  * 2. Mengambil data detail koreksi stok (tkor_dtl) berdasarkan nomor header.
  */
-const fetchDetails = async (nomorHeader) => {
+const fetchDetails = async (db, nomorHeader) => {
   const query = `
         SELECT 
             d.kord_kor_nomor AS Nomor,
@@ -59,15 +58,15 @@ const fetchDetails = async (nomorHeader) => {
         LEFT JOIN tbarang a ON a.brg_kode = d.kord_kode
         WHERE d.kord_kor_nomor = ?
     `;
-  const [rows] = await pool.query(query, [nomorHeader]);
+  const [rows] = await db.query(query, [nomorHeader]);
   return rows;
 };
 
 /**
  * 3. Hapus header dan detail koreksi (transaksional).
  */
-const deleteKoreksi = async (nomorHeader) => {
-  const connection = await pool.getConnection();
+const deleteKoreksi = async (db, nomorHeader) => {
+  const connection = await db.getConnection();
   try {
     await connection.beginTransaction();
     await connection.query("DELETE FROM tkor_dtl WHERE kord_kor_nomor = ?", [
@@ -94,15 +93,20 @@ const deleteKoreksi = async (nomorHeader) => {
 /**
  * 4. Lookup Barcode (Scan) - Integrated with Dupe Check, Stock, and Branch Prefix
  */
-const lookupBarcodeKoreksi = async (barcode, tanggalKoreksi, nomorKoreksi) => {
-  const [perushRows] = await pool.query(
+const lookupBarcodeKoreksi = async (
+  db,
+  barcode,
+  tanggalKoreksi,
+  nomorKoreksi,
+) => {
+  const [perushRows] = await db.query(
     "SELECT perush_kode FROM tperusahaan LIMIT 1",
   );
   if (perushRows.length === 0) throw new Error("Data perusahaan belum diatur.");
   const branchPrefix = perushRows[0].perush_kode;
 
   // Cari Barang
-  const [rows] = await pool.query(
+  const [rows] = await db.query(
     `
         SELECT b.brgd_kode AS kode, b.brgd_barcode AS barcode, b.brgd_ukuran AS ukuran, b.brgd_hpp AS hpp, b.brgd_harga AS jual,
                TRIM(CONCAT_WS(' ', a.brg_jeniskaos, a.brg_tipe, a.brg_lengan, a.brg_jeniskain, a.brg_warna)) AS nama
@@ -116,7 +120,7 @@ const lookupBarcodeKoreksi = async (barcode, tanggalKoreksi, nomorKoreksi) => {
   const item = rows[0];
 
   // Cek Duplikat di hari yang sama khusus cabang ini
-  const [dupeRows] = await pool.query(
+  const [dupeRows] = await db.query(
     `
         SELECT h.kor_nomor FROM tkor_hdr h LEFT JOIN tkor_dtl d ON d.kord_kor_nomor = h.kor_nomor
         WHERE h.kor_nomor <> ? AND h.kor_nomor LIKE CONCAT(?, '%') AND h.kor_tanggal = ? 
@@ -131,7 +135,7 @@ const lookupBarcodeKoreksi = async (barcode, tanggalKoreksi, nomorKoreksi) => {
     );
 
   // Ambil Stok Awal khusus cabang ini
-  const [stokRows] = await pool.query(
+  const [stokRows] = await db.query(
     `
         SELECT IFNULL(SUM(mst_stok_in - mst_stok_out), 0) AS stok FROM tmasterstok 
         WHERE mst_aktif = 'Y' AND mst_brg_kode = ? AND mst_ukuran = ? AND mst_tanggal < ? 
@@ -146,11 +150,11 @@ const lookupBarcodeKoreksi = async (barcode, tanggalKoreksi, nomorKoreksi) => {
 /**
  * 5. Lookup F1 Koreksi (Tabel Bantuan) - Integrated Stock & Branch
  */
-const lookupF1Koreksi = async (term, tanggal, page, itemsPerPage) => {
+const lookupF1Koreksi = async (db, term, tanggal, page, itemsPerPage) => {
   const offset = (page - 1) * itemsPerPage;
   const searchTerm = term ? `%${term.trim()}%` : null;
 
-  const [perushRows] = await pool.query(
+  const [perushRows] = await db.query(
     "SELECT perush_kode FROM tperusahaan LIMIT 1",
   );
   const branchPrefix = perushRows[0].perush_kode;
@@ -164,7 +168,7 @@ const lookupF1Koreksi = async (term, tanggal, page, itemsPerPage) => {
     params.push(searchTerm, searchTerm, searchTerm);
   }
 
-  const [countRows] = await pool.query(
+  const [countRows] = await db.query(
     `SELECT COUNT(*) as total FROM tbarang_dtl b INNER JOIN tbarang a ON a.brg_kode = b.brgd_kode ${where}`,
     params,
   );
@@ -178,7 +182,7 @@ const lookupF1Koreksi = async (term, tanggal, page, itemsPerPage) => {
         ORDER BY nama, ukuran LIMIT ? OFFSET ?
     `;
 
-  const [items] = await pool.query(dataQuery, [
+  const [items] = await db.query(dataQuery, [
     tanggal,
     branchPrefix,
     ...params,
@@ -191,18 +195,15 @@ const lookupF1Koreksi = async (term, tanggal, page, itemsPerPage) => {
 /**
  * 6. Simpan / Update Koreksi
  */
-/**
- * 6. Simpan / Update Koreksi
- */
-const saveKoreksi = async (header, items, userKode, isNew) => {
-  const connection = await pool.getConnection();
+const saveKoreksi = async (db, header, items, userKode, isNew) => {
+  const connection = await db.getConnection();
   await connection.beginTransaction();
   try {
     let nomor = header.nomor;
     const tgl = format(new Date(header.tanggal), "yyyy-MM-dd");
 
     if (isNew) {
-      // Logic generate nomor tetap sama...
+      // Logic generate nomor
       const prefix = `KOR.${format(new Date(tgl), "yyMM")}`;
       const [rows] = await connection.query(
         "SELECT IFNULL(MAX(RIGHT(kor_nomor, 4)), 0) AS last FROM tkor_hdr WHERE LEFT(kor_nomor, 8) = ?",
@@ -263,14 +264,14 @@ const saveKoreksi = async (header, items, userKode, isNew) => {
 /**
  * 7. Load data untuk Edit
  */
-const loadFormData = async (nomor) => {
-  const [headerRows] = await pool.query(
+const loadFormData = async (db, nomor) => {
+  const [headerRows] = await db.query(
     "SELECT kor_nomor, DATE_FORMAT(kor_tanggal, '%Y-%m-%d') AS kor_tanggal, kor_ket FROM tkor_hdr WHERE kor_nomor = ?",
     [nomor],
   );
   if (headerRows.length === 0) throw new Error("Data tidak ditemukan.");
 
-  const [items] = await pool.query(
+  const [items] = await db.query(
     `
         SELECT d.kord_kode AS kode, b.brgd_barcode AS barcode, TRIM(CONCAT_WS(' ', a.brg_jeniskaos, a.brg_tipe, a.brg_lengan, a.brg_jeniskain, a.brg_warna)) AS nama,
                d.kord_ukuran AS ukuran, d.kord_stok AS stok, d.kord_jumlah AS jumlah, d.kord_selisih AS selisih, d.kord_hpp AS hpp, d.kord_ket AS keterangan
@@ -286,9 +287,9 @@ const loadFormData = async (nomor) => {
 /**
  * Mengambil data lengkap untuk cetak laporan koreksi stok
  */
-const getPrintData = async (nomorKoreksi, userNama) => {
+const getPrintData = async (db, nomorKoreksi, userNama) => {
   // 1. Ambil data perusahaan secara dinamis
-  const [perushRows] = await pool.query(
+  const [perushRows] = await db.query(
     "SELECT perush_nama, perush_alamat, perush_telp FROM tperusahaan LIMIT 1",
   );
   const perusahaan = perushRows[0] || {
@@ -320,7 +321,7 @@ const getPrintData = async (nomorKoreksi, userNama) => {
         WHERE h.kor_nomor = ?
     `;
 
-  const [rows] = await pool.query(query, [nomorKoreksi]);
+  const [rows] = await db.query(query, [nomorKoreksi]);
   if (rows.length === 0) throw new Error("Data cetak tidak ditemukan.");
 
   // 3. Susun Payload untuk Frontend

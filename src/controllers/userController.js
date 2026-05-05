@@ -1,9 +1,8 @@
 const userService = require("../services/userService");
-const { pool } = require("../config/database");
 
 const getBrowseUsers = async (req, res) => {
   try {
-    const data = await userService.getUsers();
+    const data = await userService.getUsers(req.db);
     res.json(data);
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -13,7 +12,7 @@ const getBrowseUsers = async (req, res) => {
 const deleteUser = async (req, res) => {
   try {
     const { kode } = req.params;
-    const result = await userService.deleteUser(kode);
+    const result = await userService.deleteUser(req.db, kode);
     res.json(result);
   } catch (error) {
     res.status(400).json({ message: error.message });
@@ -22,12 +21,12 @@ const deleteUser = async (req, res) => {
 
 const getFormResources = async (req, res) => {
   try {
-    const menus = await userService.getMenus();
+    const menus = await userService.getMenus(req.db);
     let userData = null;
 
     // Jika ada parameter ID, berarti mode edit, ambil data usernya sekalian
     if (req.params.kode) {
-      userData = await userService.getUserById(req.params.kode);
+      userData = await userService.getUserById(req.db, req.params.kode);
     }
 
     res.json({ menus, userData });
@@ -38,7 +37,11 @@ const getFormResources = async (req, res) => {
 
 const saveUser = async (req, res) => {
   try {
-    const result = await userService.saveUser(req.body.data, req.body.isNew);
+    const result = await userService.saveUser(
+      req.db,
+      req.body.data,
+      req.body.isNew,
+    );
     res.json(result);
   } catch (error) {
     res.status(400).json({ message: error.message });
@@ -58,6 +61,7 @@ const changePassword = async (req, res) => {
     }
 
     const result = await userService.changePassword(
+      req.db,
       userKode,
       oldPassword,
       newPassword,
@@ -70,11 +74,9 @@ const changePassword = async (req, res) => {
 
 const getUserList = async (req, res) => {
   try {
-    // Ambil user yang aktif untuk dropdown kasir
-    const [rows] = await pool.query(
-      "SELECT user_kode, user_nama FROM tuser WHERE user_aktif = 'Y' ORDER BY user_nama ASC",
-    );
-    res.json(rows);
+    // Dipindahkan ke service agar controller lebih bersih
+    const data = await userService.getUserList(req.db);
+    res.json(data);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }

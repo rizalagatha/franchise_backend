@@ -1,10 +1,8 @@
-const { pool } = require("../config/database");
-
 /**
  * Mengambil data price list (join tbarang & tbarang_dtl).
  * Menggunakan CONCAT untuk nama barang.
  */
-const fetchAllPriceListData = async () => {
+const fetchAllPriceListData = async (db) => {
   // Query disesuaikan dari Delphi TfrmPriceList.btnRefreshClick
   const query = `
         SELECT 
@@ -19,7 +17,7 @@ const fetchAllPriceListData = async () => {
         LEFT JOIN tbarang_dtl b ON b.brgd_kode = a.brg_kode
         ORDER BY a.brg_kode, b.brgd_ukuran; 
     `;
-  const [rows] = await pool.query(query);
+  const [rows] = await db.query(query);
   return rows;
 };
 
@@ -27,8 +25,15 @@ const fetchAllPriceListData = async () => {
  * Memperbarui HPP dan Harga Jual barang, serta mencatat riwayat di tharga.
  * Menggunakan transaksi.
  */
-const updatePrice = async (kodeBarang, ukuran, newHpp, newHarga, userKode) => {
-  const connection = await pool.getConnection(); // Dapatkan koneksi untuk transaksi
+const updatePrice = async (
+  db,
+  kodeBarang,
+  ukuran,
+  newHpp,
+  newHarga,
+  userKode,
+) => {
+  const connection = await db.getConnection(); // Dapatkan koneksi cabang untuk transaksi
   try {
     await connection.beginTransaction(); // Mulai transaksi
 
@@ -79,7 +84,7 @@ const updatePrice = async (kodeBarang, ukuran, newHpp, newHarga, userKode) => {
  * Mengambil riwayat harga jual suatu barang berdasarkan kode dan ukuran.
  * Sesuai logika Delphi TfrmPriceList.loadHarga
  */
-const getPriceHistory = async (kodeBarang, ukuran) => {
+const getPriceHistory = async (db, kodeBarang, ukuran) => {
   const query = `
         SELECT 
             DATE_FORMAT(h.hrg_tanggal, '%d-%m-%Y %T') AS Tanggal, 
@@ -91,7 +96,7 @@ const getPriceHistory = async (kodeBarang, ukuran) => {
         WHERE h.hrg_kode = ? AND h.hrg_ukuran = ? 
         ORDER BY h.hrg_tanggal DESC
     `;
-  const [rows] = await pool.query(query, [kodeBarang, ukuran]);
+  const [rows] = await db.query(query, [kodeBarang, ukuran]);
   return rows;
 };
 

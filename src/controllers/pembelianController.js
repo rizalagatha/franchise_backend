@@ -8,7 +8,11 @@ const getHeaders = async (req, res) => {
         .status(400)
         .json({ message: "Filter tanggal (startDate, endDate) diperlukan." });
     }
-    const headers = await pembelianService.fetchHeaders(startDate, endDate);
+    const headers = await pembelianService.fetchHeaders(
+      req.db,
+      startDate,
+      endDate,
+    );
     res.json(headers);
   } catch (error) {
     res.status(500).json({
@@ -21,7 +25,7 @@ const getHeaders = async (req, res) => {
 const getDetails = async (req, res) => {
   try {
     const { nomor } = req.params;
-    const details = await pembelianService.fetchDetails(nomor);
+    const details = await pembelianService.fetchDetails(req.db, nomor);
     res.json(details);
   } catch (error) {
     res.status(500).json({
@@ -34,7 +38,7 @@ const getDetails = async (req, res) => {
 const deletePembelianData = async (req, res) => {
   try {
     const { nomor } = req.params;
-    const result = await pembelianService.deletePembelian(nomor);
+    const result = await pembelianService.deletePembelian(req.db, nomor);
     res.json(result);
   } catch (error) {
     if (error.message === "Nomor pembelian tidak ditemukan.") {
@@ -53,7 +57,7 @@ const deletePembelianData = async (req, res) => {
 const getFormData = async (req, res) => {
   try {
     const { nomor } = req.params;
-    const data = await pembelianService.loadFormData(nomor);
+    const data = await pembelianService.loadFormData(req.db, nomor);
     res.json(data);
   } catch (error) {
     res.status(404).json({ message: error.message });
@@ -73,10 +77,11 @@ const saveData = async (req, res) => {
         .json({ message: "Data header atau detail tidak lengkap." });
     }
     const result = await pembelianService.savePembelian(
+      req.db,
       header,
       items,
       userKode,
-      isNew
+      isNew,
     );
     res.status(isNew ? 201 : 200).json(result);
   } catch (error) {
@@ -90,7 +95,7 @@ const saveData = async (req, res) => {
 const getBarcodeLookup = async (req, res) => {
   try {
     const { barcode } = req.params;
-    const result = await pembelianService.lookupBarcode(barcode);
+    const result = await pembelianService.lookupBarcode(req.db, barcode);
     res.status(200).json(result);
   } catch (error) {
     res.status(404).json({ message: error.message });
@@ -103,7 +108,7 @@ const getBarcodeLookup = async (req, res) => {
 const getInvoiceLookup = async (req, res) => {
   try {
     const { nomor } = req.params;
-    const result = await pembelianService.lookupInvoice(nomor);
+    const result = await pembelianService.lookupInvoice(req.db, nomor);
     res.json(result);
   } catch (error) {
     res.status(400).json({ message: error.message }); // 400 Bad Request

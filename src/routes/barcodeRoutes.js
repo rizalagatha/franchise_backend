@@ -1,62 +1,64 @@
 const express = require("express");
 const router = express.Router();
 const barcodeController = require("../controllers/barcodeController");
+
+// Import dari middleware yang sudah dipisah fungsinya
 const {
   verifyToken,
   checkPermission,
   checkSavePermission,
 } = require("../middlewares/authMiddleware");
+const { injectBranchDb } = require("../middlewares/branchMiddleware");
 
 const BARCODE_MENU_ID = "13";
 
-// GET /api/barcodes - Ambil Headers (Perlu view) + Filter Tanggal
+// GET /api/barcodes - Ambil Headers
 router.get(
   "/",
-  [verifyToken, checkPermission(BARCODE_MENU_ID, "view")],
-  barcodeController.getHeaders
+  [verifyToken, injectBranchDb, checkPermission(BARCODE_MENU_ID, "view")],
+  barcodeController.getHeaders,
 );
 
-// GET /api/barcodes/:nomor/details - Ambil Details (Perlu view)
+// GET /api/barcodes/:nomor/details - Ambil Details
 router.get(
   "/:nomor/details",
-  [verifyToken, checkPermission(BARCODE_MENU_ID, "view")],
-  barcodeController.getDetails
+  [verifyToken, injectBranchDb, checkPermission(BARCODE_MENU_ID, "view")],
+  barcodeController.getDetails,
 );
 
-// DELETE /api/barcodes/:nomor - Hapus Header & Detail (Perlu delete)
+// DELETE /api/barcodes/:nomor - Hapus Header & Detail
 router.delete(
   "/:nomor",
-  [verifyToken, checkPermission(BARCODE_MENU_ID, "delete")],
-  barcodeController.deleteBarcodeData
+  [verifyToken, injectBranchDb, checkPermission(BARCODE_MENU_ID, "delete")],
+  barcodeController.deleteBarcodeData,
 );
 
-// GET /api/barcodes/lookup - Cari barang (Perlu view atau insert/edit?)
+// GET /api/barcodes/lookup/barang - Cari barang
 router.get(
-  "/lookup/barang", // Gunakan path yang lebih spesifik
-  // Asumsi user perlu hak insert atau edit untuk bisa lookup barang
-  [verifyToken, checkPermission(BARCODE_MENU_ID, "insert")], // Atau 'edit' atau 'view'
-  barcodeController.lookupItem
+  "/lookup/barang",
+  [verifyToken, injectBranchDb, checkPermission(BARCODE_MENU_ID, "insert")],
+  barcodeController.lookupItem,
 );
 
 // GET /api/barcodes/details/:kode (Mengambil semua varian)
 router.get(
-    '/details/:kode',
-    [verifyToken, checkPermission(BARCODE_MENU_ID, 'insert')], // Asumsi izin insert
-    barcodeController.getVarianDetails
+  "/details/:kode",
+  [verifyToken, injectBranchDb, checkPermission(BARCODE_MENU_ID, "insert")],
+  barcodeController.getVarianDetails,
 );
 
-// GET /api/barcodes/form/:nomor - Load data form edit (Perlu edit)
+// GET /api/barcodes/form/:nomor - Load data form edit
 router.get(
   "/form/:nomor",
-  [verifyToken, checkPermission(BARCODE_MENU_ID, "edit")],
-  barcodeController.getFormData
+  [verifyToken, injectBranchDb, checkPermission(BARCODE_MENU_ID, "edit")],
+  barcodeController.getFormData,
 );
 
 // POST /api/barcodes/save - Simpan data (Create/Update)
 router.post(
-  "/save", // Satu endpoint untuk save
-  [verifyToken, checkSavePermission(BARCODE_MENU_ID)], // Middleware cek insert/edit
-  barcodeController.saveData
+  "/save",
+  [verifyToken, injectBranchDb, checkSavePermission(BARCODE_MENU_ID)],
+  barcodeController.saveData,
 );
 
 module.exports = router;

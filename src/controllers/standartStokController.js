@@ -2,7 +2,8 @@ const standartStokService = require("../services/standartStokService");
 
 const getStandartStok = async (req, res) => {
   try {
-    const data = await standartStokService.fetchStandartStok();
+    // Kirim req.db ke service
+    const data = await standartStokService.fetchStandartStok(req.db);
     res.json(data);
   } catch (error) {
     res.status(500).json({
@@ -22,7 +23,9 @@ const updateBufferData = async (req, res) => {
         .json({ message: "Kode barang dan ukuran diperlukan." });
     }
 
+    // Kirim req.db ke service
     const result = await standartStokService.updateBuffer(
+      req.db,
       kode,
       ukuran,
       minBuffer,

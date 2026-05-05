@@ -1,8 +1,6 @@
-const { pool } = require("../config/database");
-
-const getStats = async (cabang, tanggal) => {
+const getStats = async (db, cabang, tanggal) => {
   // Menghitung total penjualan hari ini dengan join ke detail
-  const [sales] = await pool.query(
+  const [sales] = await db.query(
     `SELECT 
         IFNULL(SUM(d.subtotal - h.inv_disc), 0) as total,
         COUNT(DISTINCT h.inv_nomor) as count
@@ -17,7 +15,7 @@ const getStats = async (cabang, tanggal) => {
   );
 
   // Ambil jumlah stok menipis (Sisa stok <= 10)
-  const [lowStock] = await pool.query(
+  const [lowStock] = await db.query(
     `SELECT COUNT(*) as count FROM (
        SELECT SUM(mst_stok_in - mst_stok_out) as sisa 
        FROM tmasterstok 
@@ -28,7 +26,7 @@ const getStats = async (cabang, tanggal) => {
     [cabang],
   );
 
-  const [products] = await pool.query("SELECT COUNT(*) as count FROM tbarang");
+  const [products] = await db.query("SELECT COUNT(*) as count FROM tbarang");
 
   return {
     todaySales: parseFloat(sales[0].total),
@@ -38,7 +36,7 @@ const getStats = async (cabang, tanggal) => {
   };
 };
 
-const getChartData = async (cabang, start, end, groupBy = "day") => {
+const getChartData = async (db, cabang, start, end, groupBy = "day") => {
   // Tambah param groupBy
   const startDate = start + " 00:00:00";
   const endDate = end + " 23:59:59";
@@ -48,7 +46,7 @@ const getChartData = async (cabang, start, end, groupBy = "day") => {
   if (groupBy === "week") dateFormat = "%Y-%u"; // Berdasarkan Minggu ke-berapa
   if (groupBy === "month") dateFormat = "%Y-%m";
 
-  const [rows] = await pool.query(
+  const [rows] = await db.query(
     `SELECT 
         DATE_FORMAT(h.inv_tanggal, '${dateFormat}') as tanggal, 
         IFNULL(SUM(d.subtotal - IFNULL(h.inv_disc, 0)), 0) as total 
@@ -69,10 +67,9 @@ const getChartData = async (cabang, start, end, groupBy = "day") => {
   return rows;
 };
 
-const getPendingActions = async (cabang) => {
+const getPendingActions = async (db, cabang) => {
   // Menghitung jumlah invoice yang sisa piutangnya > 0
-  // Sisa piutang = SUM(pd_debet - pd_kredit)
-  const [piutang] = await pool.query(
+  const [piutang] = await db.query(
     `SELECT COUNT(*) as count FROM (
        SELECT SUM(d.pd_debet - d.pd_kredit) as sisa
        FROM tpiutang_hdr h
@@ -89,14 +86,14 @@ const getPendingActions = async (cabang) => {
       key: "piutang_pending",
       title: "Tagihan Belum Lunas",
       icon: "mdi-alert-decagram-outline",
-      to: "/transaksi/setoran-pembayaran", // Diarahkan ke form pelunasan
+      to: "/transaksi/setoran-pembayaran",
       count: piutang[0].count,
     },
   ];
 };
 
-const getRecentTransactions = async (cabang) => {
-  const [rows] = await pool.query(
+const getRecentTransactions = async (db, cabang) => {
+  const [rows] = await db.query(
     `SELECT h.inv_nomor as id, 
             c.cus_nama as customer, 
             DATE_FORMAT(h.date_create, "%H:%i") as time, 
@@ -119,8 +116,8 @@ const getRecentTransactions = async (cabang) => {
   return rows;
 };
 
-const getLowStockDetails = async (cabang) => {
-  const [rows] = await pool.query(
+const getLowStockDetails = async (db, cabang) => {
+  const [rows] = await db.query(
     `SELECT b.brg_kode as KODE, 
             TRIM(CONCAT(b.brg_jeniskaos, ' ', b.brg_tipe, ' ', b.brg_lengan, ' ', b.brg_jeniskain, ' ', b.brg_warna)) AS NAMA,
             SUM(m.mst_stok_in - m.mst_stok_out) as TOTAL,
@@ -136,10 +133,10 @@ const getLowStockDetails = async (cabang) => {
   return rows;
 };
 
-const getSalesTarget = async (cabang) => {
+const getSalesTarget = async (db, cabang) => {
   // Contoh: Target statis 150jt, realisasi bulan berjalan
   const currentMonth = new Date().toISOString().slice(0, 7); // "2026-03"
-  const [rows] = await pool.query(
+  const [rows] = await db.query(
     `SELECT IFNULL(SUM(invd_jumlah * (invd_harga - invd_diskon)), 0) as nominal
      FROM tinv_dtl d
      JOIN tinv_hdr h ON d.invd_inv_nomor = h.inv_nomor
