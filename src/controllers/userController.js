@@ -1,8 +1,11 @@
+// src/controllers/userController.js
 const userService = require("../services/userService");
 
 const getBrowseUsers = async (req, res) => {
   try {
-    const data = await userService.getUsers(req.db);
+    // Ambil ID Cabang dari JWT Token
+    const cabangId = req.user.cabang.id;
+    const data = await userService.getUsers(cabangId);
     res.json(data);
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -12,7 +15,8 @@ const getBrowseUsers = async (req, res) => {
 const deleteUser = async (req, res) => {
   try {
     const { kode } = req.params;
-    const result = await userService.deleteUser(req.db, kode);
+    const cabangId = req.user.cabang.id;
+    const result = await userService.deleteUser(cabangId, kode);
     res.json(result);
   } catch (error) {
     res.status(400).json({ message: error.message });
@@ -21,12 +25,12 @@ const deleteUser = async (req, res) => {
 
 const getFormResources = async (req, res) => {
   try {
-    const menus = await userService.getMenus(req.db);
+    const cabangId = req.user.cabang.id;
+    const menus = await userService.getMenus(); // Menu bersifat global di Master
     let userData = null;
 
-    // Jika ada parameter ID, berarti mode edit, ambil data usernya sekalian
     if (req.params.kode) {
-      userData = await userService.getUserById(req.db, req.params.kode);
+      userData = await userService.getUserById(cabangId, req.params.kode);
     }
 
     res.json({ menus, userData });
@@ -37,8 +41,9 @@ const getFormResources = async (req, res) => {
 
 const saveUser = async (req, res) => {
   try {
+    const cabangId = req.user.cabang.id;
     const result = await userService.saveUser(
-      req.db,
+      cabangId,
       req.body.data,
       req.body.isNew,
     );
@@ -48,11 +53,21 @@ const saveUser = async (req, res) => {
   }
 };
 
+const getUserList = async (req, res) => {
+  try {
+    const cabangId = req.user.cabang.id;
+    const data = await userService.getUserList(cabangId);
+    res.json(data);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
 const changePassword = async (req, res) => {
   try {
     const { oldPassword, newPassword } = req.body;
-    // Mengambil user_kode dari token yang sudah di-verify oleh authMiddleware
     const userKode = req.user.kode;
+    const cabangId = req.user.cabang.id; // Ambil dari JWT
 
     if (!oldPassword || !newPassword) {
       return res
@@ -61,7 +76,7 @@ const changePassword = async (req, res) => {
     }
 
     const result = await userService.changePassword(
-      req.db,
+      cabangId,
       userKode,
       oldPassword,
       newPassword,
@@ -72,21 +87,11 @@ const changePassword = async (req, res) => {
   }
 };
 
-const getUserList = async (req, res) => {
-  try {
-    // Dipindahkan ke service agar controller lebih bersih
-    const data = await userService.getUserList(req.db);
-    res.json(data);
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
-};
-
 module.exports = {
   getBrowseUsers,
   deleteUser,
   getFormResources,
   saveUser,
-  changePassword,
   getUserList,
+  changePassword,
 };

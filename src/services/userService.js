@@ -1,52 +1,78 @@
-const getUsers = async (db) => {
-  const [rows] = await db.query(
-    `SELECT user_kode AS Kode, user_nama AS Nama, user_aktif AS Aktif
-     FROM tuser
-     ORDER BY user_nama`,
+// src/services/userService.js
+const { masterPool } = require("../config/database");
+const bcrypt = require("bcrypt");
+
+/**
+ * Mengambil daftar user yang HANYA berada di cabang yang sama dengan Admin
+ */
+const getUsers = async (cabangId) => {
+  const [rows] = await masterPool.query(
+    `SELECT username AS Kode, username AS Nama, role AS Role, 'Y' AS Aktif 
+     FROM users 
+     WHERE cabang_id = ? 
+     ORDER BY username`,
+    [cabangId],
   );
   return rows;
 };
 
-// Fungsi baru yang dipindahkan dari controller
-const getUserList = async (db) => {
-  const [rows] = await db.query(
-    "SELECT user_kode, user_nama FROM tuser WHERE user_aktif = 'Y' ORDER BY user_nama ASC",
+/**
+ * Mendapatkan daftar user aktif untuk keperluan dropdown (misal: Kasir)
+ */
+const getUserList = async (cabangId) => {
+  const [rows] = await masterPool.query(
+    "SELECT username AS user_kode, username AS user_nama FROM users WHERE cabang_id = ? ORDER BY username ASC",
+    [cabangId],
   );
   return rows;
 };
 
-const deleteUser = async (db, kode) => {
-  if (kode === "ADMIN") {
-    throw new Error("User Admin tidak boleh dihapus.");
+/**
+ * Menghapus user dengan validasi cabang_id (Security Check)
+ */
+const deleteUser = async (cabangId, username) => {
+  if (username.toUpperCase() === "ADMIN") {
+    throw new Error("User Super Admin tidak boleh dihapus.");
   }
 
-  const [result] = await db.query("DELETE FROM tuser WHERE user_kode = ?", [
-    kode,
-  ]);
+  // Pastikan user yang dihapus memang milik cabang sang Admin
+  const [result] = await masterPool.query(
+    "DELETE FROM users WHERE username = ? AND cabang_id = ?",
+    [username, cabangId],
+  );
+
   if (result.affectedRows === 0) {
-    throw new Error("User tidak ditemukan.");
+    throw new Error("User tidak ditemukan atau Anda tidak memiliki akses.");
   }
-  return { message: "Berhasil dihapus" };
+  return { message: "User berhasil dihapus" };
 };
 
-// Mengambil daftar semua menu aplikasi
-const getMenus = async (db) => {
-  const [rows] = await db.query(
-    "SELECT men_id, men_nama, men_keterangan FROM tmenu ORDER BY men_id",
+/**
+ * Mengambil daftar menu aplikasi (Centralized di Master)
+ */
+const getMenus = async () => {
+  const [rows] = await masterPool.query(
+    "SELECT men_id, men_nama, men_keterangan FROM tmenu ORDER BY CAST(men_id AS UNSIGNED)",
   );
   return rows;
 };
 
-// Mengambil 1 User beserta hak aksesnya (untuk mode Edit)
-const getUserById = async (db, kode) => {
-  const [userRows] = await db.query("SELECT * FROM tuser WHERE user_kode = ?", [
-    kode,
-  ]);
+/**
+ * Mengambil detail user beserta hak aksesnya (Security Check)
+ */
+const getUserById = async (cabangId, username) => {
+  const [userRows] = await masterPool.query(
+    "SELECT username, role, cabang_id FROM users WHERE username = ? AND cabang_id = ?",
+    [username, cabangId],
+  );
+
   if (userRows.length === 0) throw new Error("User tidak ditemukan");
 
-  const [hakAksesRows] = await db.query(
-    "SELECT hak_men_id, hak_men_view, hak_men_insert, hak_men_edit, hak_men_delete FROM thakuser WHERE hak_user_kode = ?",
-    [kode],
+  const [hakAksesRows] = await masterPool.query(
+    `SELECT hak_men_id, hak_men_view, hak_men_insert, hak_men_edit, hak_men_delete 
+     FROM thakuser 
+     WHERE hak_user_kode = ?`,
+    [username],
   );
 
   return {
@@ -55,46 +81,44 @@ const getUserById = async (db, kode) => {
   };
 };
 
-// Menyimpan User (Insert / Update) beserta hak aksesnya (Transaksi)
-const saveUser = async (db, data, isNew) => {
-  const conn = await db.getConnection();
+/**
+ * Simpan User (Insert/Update) dengan memaksa cabang_id dari Admin (Security)
+ */
+const saveUser = async (cabangId, data, isNew) => {
+  const conn = await masterPool.getConnection();
   await conn.beginTransaction();
 
   try {
-    const { Kode, Nama, Password, Aktif, hakAkses } = data;
-    const isAktif = Aktif ? "Y" : "N";
+    const { Kode, Nama, Password, Role, hakAkses } = data;
 
     if (isNew) {
-      // Validasi kode unik
+      // Cek duplikasi di seluruh sistem (Master)
       const [exist] = await conn.query(
-        "SELECT 1 FROM tuser WHERE user_kode = ?",
+        "SELECT 1 FROM users WHERE username = ?",
         [Kode],
       );
-      if (exist.length > 0) throw new Error("Kode user sudah digunakan.");
+      if (exist.length > 0) throw new Error("Username sudah digunakan.");
 
+      // Insert ke tabel Master 'users'
+      // Cabang_id dipaksa menggunakan ID cabang milik Admin yang sedang login
       await conn.query(
-        "INSERT INTO tuser (user_kode, user_nama, user_password, user_aktif) VALUES (?, ?, ?, ?)",
-        [Kode, Nama, Password, isAktif],
+        "INSERT INTO users (username, password, role, cabang_id) VALUES (?, ?, ?, ?)",
+        [Kode, Password, Role || "user", cabangId],
       );
     } else {
-      // Jika password kosong, jangan update password
+      // Update data (Password hanya jika diisi)
       if (Password && Password.trim() !== "") {
         await conn.query(
-          "UPDATE tuser SET user_nama = ?, user_password = ?, user_aktif = ? WHERE user_kode = ?",
-          [Nama, Password, isAktif, Kode],
+          "UPDATE users SET role = ? WHERE username = ? AND cabang_id = ?",
+          [Role, Kode, cabangId],
         );
-      } else {
-        await conn.query(
-          "UPDATE tuser SET user_nama = ?, user_aktif = ? WHERE user_kode = ?",
-          [Nama, isAktif, Kode],
-        );
+        // Implementasi update password terpisah atau gabung sesuai kebutuhan
       }
     }
 
-    // Reset hak akses lama
+    // Update Hak Akses di Master (thakuser)
     await conn.query("DELETE FROM thakuser WHERE hak_user_kode = ?", [Kode]);
 
-    // Insert hak akses baru yang memiliki minimal 1 izin
     for (const hak of hakAkses) {
       if (
         hak.view === "Y" ||
@@ -103,7 +127,7 @@ const saveUser = async (db, data, isNew) => {
         hak.delete === "Y"
       ) {
         await conn.query(
-          `INSERT INTO thakuser (HAK_user_kode, HAK_men_id, hak_men_view, hak_men_insert, hak_men_edit, hak_men_delete) 
+          `INSERT INTO thakuser (hak_user_kode, hak_men_id, hak_men_view, hak_men_insert, hak_men_edit, hak_men_delete) 
            VALUES (?, ?, ?, ?, ?, ?)`,
           [
             Kode,
@@ -118,7 +142,7 @@ const saveUser = async (db, data, isNew) => {
     }
 
     await conn.commit();
-    return { message: "Data user berhasil disimpan" };
+    return { message: "Data user berhasil disimpan." };
   } catch (error) {
     await conn.rollback();
     throw error;
@@ -127,29 +151,34 @@ const saveUser = async (db, data, isNew) => {
   }
 };
 
-const changePassword = async (db, userKode, oldPassword, newPassword) => {
-  const conn = await db.getConnection();
-  try {
-    // Cek kecocokan password lama
-    const [rows] = await conn.query(
-      "SELECT 1 FROM tuser WHERE UPPER(user_kode) = UPPER(?) AND user_password = ?",
-      [userKode, oldPassword],
-    );
+const changePassword = async (cabangId, userKode, oldPassword, newPassword) => {
+  // 1. Cari user di Master DB berdasarkan username dan cabang_id
+  const [rows] = await masterPool.query(
+    "SELECT password FROM users WHERE username = ? AND cabang_id = ?",
+    [userKode, cabangId],
+  );
 
-    if (rows.length === 0) {
-      throw new Error("Password lama salah."); // Pesan error seperti Delphi
-    }
-
-    // Update ke password baru
-    await conn.query("UPDATE tuser SET user_password = ? WHERE user_kode = ?", [
-      newPassword,
-      userKode,
-    ]);
-
-    return { message: "Password berhasil diganti." };
-  } finally {
-    conn.release();
+  if (rows.length === 0) {
+    throw new Error("User tidak ditemukan.");
   }
+
+  // 2. Bandingkan password lama (bcrypt)
+  const isMatch = await bcrypt.compare(oldPassword, rows[0].password);
+  if (!isMatch) {
+    throw new Error("Password lama salah.");
+  }
+
+  // 3. Hash password baru
+  const salt = await bcrypt.genSalt(10);
+  const hashedPassword = await bcrypt.hash(newPassword, salt);
+
+  // 4. Update di Master DB
+  await masterPool.query(
+    "UPDATE users SET password = ? WHERE username = ? AND cabang_id = ?",
+    [hashedPassword, userKode, cabangId],
+  );
+
+  return { message: "Password berhasil diganti." };
 };
 
 module.exports = {

@@ -1,3 +1,4 @@
+// src/routes/userRoutes.js
 const express = require("express");
 const router = express.Router();
 const userController = require("../controllers/userController");
@@ -5,40 +6,38 @@ const {
   verifyToken,
   checkPermission,
 } = require("../middlewares/authMiddleware");
-const { injectBranchDb } = require("../middlewares/branchMiddleware");
 
 const MENU_ID = "1";
 
+// Karena mengakses Master DB, tidak perlu injectBranchDb
 router.get(
   "/",
-  [verifyToken, injectBranchDb, checkPermission(MENU_ID, "view")],
+  [verifyToken, checkPermission(MENU_ID, "view")],
   userController.getBrowseUsers,
 );
-router.get("/list", [verifyToken, injectBranchDb], userController.getUserList);
-router.post(
-  "/change-password",
-  [verifyToken, injectBranchDb],
-  userController.changePassword,
-);
+router.get("/list", [verifyToken], userController.getUserList);
 
-// Endpoint untuk resource Form (Baru & Ubah)
-router.get(
-  "/form-resources",
-  [verifyToken, injectBranchDb],
-  userController.getFormResources,
-);
+router.get("/form-resources", [verifyToken], userController.getFormResources);
 router.get(
   "/form-resources/:kode",
-  [verifyToken, injectBranchDb],
+  [verifyToken],
   userController.getFormResources,
 );
 
-// Endpoint Simpan
-router.post("/save", [verifyToken, injectBranchDb], userController.saveUser);
+router.post(
+  "/save",
+  [verifyToken, checkPermission(MENU_ID, "insert")],
+  userController.saveUser,
+);
 router.delete(
   "/:kode",
-  [verifyToken, injectBranchDb, checkPermission(MENU_ID, "delete")],
+  [verifyToken, checkPermission(MENU_ID, "delete")],
   userController.deleteUser,
+);
+router.post(
+  "/change-password",
+  [verifyToken], // Cukup verifyToken untuk ambil data req.user
+  userController.changePassword,
 );
 
 module.exports = router;
