@@ -34,6 +34,7 @@ const port = process.env.PORT || 5001;
 const whitelist = [
   "http://localhost:3000", // Untuk testing Vue/Nuxt di lokal
   "http://localhost:5173", // Untuk testing Vite di lokal
+  "http://103.93.162.0",
   "https://priority.kaosanofficial.com", // GANTI dengan domain frontend asli Mas Rizal nanti
   "https://www.priority.kaosanofficial.com", // Tambahkan variasi www jika perlu
 ];
