@@ -58,6 +58,7 @@ const loginUser = async (kodeUser, password) => {
       nama: user.username, // Gunakan username sebagai nama, karena kolom nama_lengkap tidak ada
       cabang: user.cabang_id,
       cabangNama: user.nama_cabang,
+      terms_accepted: user.terms_accepted,
     },
     permissions,
   };
