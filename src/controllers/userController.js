@@ -87,6 +87,16 @@ const changePassword = async (req, res) => {
   }
 };
 
+const acceptTerms = async (req, res) => {
+  try {
+    const username = req.user.kode; // Ambil dari token JWT
+    const result = await userService.acceptTerms(username);
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
 module.exports = {
   getBrowseUsers,
   deleteUser,
@@ -94,4 +104,5 @@ module.exports = {
   saveUser,
   getUserList,
   changePassword,
+  acceptTerms,
 };

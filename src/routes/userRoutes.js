@@ -39,5 +39,6 @@ router.post(
   [verifyToken], // Cukup verifyToken untuk ambil data req.user
   userController.changePassword,
 );
+router.post("/accept-terms", [verifyToken], userController.acceptTerms);
 
 module.exports = router;

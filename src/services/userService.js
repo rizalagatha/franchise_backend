@@ -192,6 +192,14 @@ const changePassword = async (cabangId, userKode, oldPassword, newPassword) => {
   return { message: "Password berhasil diganti." };
 };
 
+const acceptTerms = async (username) => {
+  await masterPool.query(
+    "UPDATE users SET terms_accepted = 1 WHERE username = ?",
+    [username],
+  );
+  return { message: "Syarat dan ketentuan berhasil disetujui." };
+};
+
 module.exports = {
   getUsers,
   getUserList,
@@ -200,4 +208,5 @@ module.exports = {
   getUserById,
   saveUser,
   changePassword,
+  acceptTerms,
 };
