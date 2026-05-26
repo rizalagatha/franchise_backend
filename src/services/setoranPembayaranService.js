@@ -162,13 +162,17 @@ const generateNomorSTR = async (connection, branchCode, date) => {
  */
 const fetchUnpaidInvoices = async (db, cusKode) => {
   const query = `
-    SELECT * FROM (
-      SELECT h.ph_inv_nomor AS Invoice, h.ph_tanggal AS TglInvoice, h.ph_nominal AS Nominal,
-             (SELECT SUM(pd_kredit) FROM tpiutang_dtl WHERE pd_ph_nomor = h.ph_nomor) AS Bayar,
-             (SELECT SUM(pd_debet - pd_kredit) FROM tpiutang_dtl WHERE pd_ph_nomor = h.ph_nomor) AS Sisa
-      FROM tpiutang_hdr h
-      WHERE h.ph_cus_kode = ?
-    ) X WHERE X.Sisa > 0 ORDER BY X.TglInvoice ASC`;
+    SELECT 
+      h.ph_inv_nomor AS Invoice, 
+      h.ph_tanggal AS TglInvoice, 
+      h.ph_nominal AS Nominal,
+      /* Total bayar untuk invoice ini */
+      IFNULL((SELECT SUM(pd_kredit) FROM tpiutang_dtl WHERE pd_ph_nomor = h.ph_nomor), 0) AS Bayar,
+      /* Sisa piutang saat ini */
+      (h.ph_nominal - IFNULL((SELECT SUM(pd_kredit) FROM tpiutang_dtl WHERE pd_ph_nomor = h.ph_nomor), 0)) AS Sisa
+    FROM tpiutang_hdr h
+    WHERE h.ph_cus_kode = ? 
+    ORDER BY h.ph_tanggal ASC`;
 
   const [rows] = await db.query(query, [cusKode]);
   return rows;
