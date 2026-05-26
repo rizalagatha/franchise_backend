@@ -255,9 +255,6 @@ const saveInvoice = async (db, header, items, userKode, isNew) => {
     const bayarTunaiHeader = rawBayarTunai;
 
     let bayarTunaiPiutang = rawBayarTunai - nKembali - pundiAmal;
-    if (bayarTunaiPiutang > nKembali && nKembali > 0) {
-      bayarTunaiPiutang = bayarTunaiPiutang - nKembali;
-    }
 
     if (bayarCard !== 0 && (!noSetor || noSetor === "")) {
       noSetor = await generateNoSetor(connection, branchCode);
