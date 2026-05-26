@@ -273,17 +273,22 @@ const saveInvoice = async (db, header, items, userKode, isNew) => {
       );
     }
 
+    // Hapus data piutang lama jika mode edit
     await connection.query("DELETE FROM tpiutang_hdr WHERE ph_inv_nomor = ?", [
       nomorInv,
     ]);
 
     const phNomor = header.kdCus.trim() + nomorInv.trim();
 
+    // 1. Simpan Header Piutang (Total Tagihan Asli sebelum bayar)
+    // Nilai piutang_hdr.ph_nominal = Netto Barang + Biaya Kirim - Diskon Global
+    const totalTagihan = netto + bykirim - diskonNominal;
     await connection.query(
       `INSERT INTO tpiutang_hdr (ph_nomor, ph_tanggal, ph_cus_kode, ph_inv_nomor, ph_nominal) VALUES (?, ?, ?, ?, ?)`,
-      [phNomor, tgl, header.kdCus, nomorInv, netto + bykirim],
+      [phNomor, tgl, header.kdCus, nomorInv, totalTagihan],
     );
 
+    // 2. Simpan Detail Debet (Tagihan)
     await connection.query(
       `INSERT INTO tpiutang_dtl (pd_ph_nomor, pd_tanggal, pd_uraian, pd_debet) VALUES (?, ?, 'Penjualan', ?)`,
       [phNomor, tgl, netto],
@@ -296,6 +301,16 @@ const saveInvoice = async (db, header, items, userKode, isNew) => {
       );
     }
 
+    // 3. Simpan Detail Kredit untuk Diskon Global (Agar memotong piutang)
+    // Di sistem akuntansi, diskon penjualan mengurangi piutang (dicatat sebagai kredit)
+    if (diskonNominal > 0) {
+      await connection.query(
+        `INSERT INTO tpiutang_dtl (pd_ph_nomor, pd_tanggal, pd_uraian, pd_kredit) VALUES (?, ?, 'Diskon Penjualan', ?)`,
+        [phNomor, tgl, diskonNominal],
+      );
+    }
+
+    // 4. Simpan Detail Kredit untuk Pembayaran Tunai
     if (bayarTunaiPiutang !== 0) {
       await connection.query(
         `INSERT INTO tpiutang_dtl (pd_ph_nomor, pd_tanggal, pd_uraian, pd_kredit) VALUES (?, ?, 'BAYAR TUNAI', ?)`,
@@ -303,6 +318,7 @@ const saveInvoice = async (db, header, items, userKode, isNew) => {
       );
     }
 
+    // 5. Simpan Detail Kredit untuk Pembayaran Kartu (dan Setoran)
     if (noSetor) {
       await connection.query("DELETE FROM tsetor_hdr WHERE sh_nomor = ?", [
         noSetor,
