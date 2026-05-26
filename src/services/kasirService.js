@@ -56,7 +56,7 @@ const fetchHeaders = async (db, startDate, endDate) => {
       /* Piutang adalah total tagihan yang harus dibayar */
       COALESCE(u.ph_nominal, 0) AS Piutang,
       /* Bayar adalah total kredit yang bukan diskon */
-      IFNULL(v.kredit_murni, 0) AS Bayar,
+      IFNULL(v.kredit_bayar, 0) AS Bayar,
       /* Sisa = Piutang - Bayar Murni */
       (COALESCE(u.ph_nominal, 0) - IFNULL(v.kredit_murni, 0)) AS SisaPiutang,
       h.Inv_cus_kode AS KdCus,
@@ -76,7 +76,10 @@ const fetchHeaders = async (db, startDate, endDate) => {
     LEFT JOIN tpiutang_hdr u ON u.ph_inv_nomor = h.inv_nomor
     LEFT JOIN (
       SELECT pd_ph_nomor, 
-             SUM(CASE WHEN pd_uraian LIKE '%Diskon%' THEN 0 ELSE pd_kredit END) AS kredit_murni 
+             SUM(CASE 
+                WHEN pd_uraian IN ('Diskon Penjualan', 'Pundi Amal') THEN 0 
+                ELSE pd_kredit 
+             END) AS kredit_bayar 
       FROM tpiutang_dtl GROUP BY pd_ph_nomor
     ) v ON v.pd_ph_nomor = u.ph_nomor
     WHERE h.Inv_tanggal BETWEEN ? AND ?
@@ -205,7 +208,7 @@ const saveInvoice = async (db, header, items, userKode, isNew) => {
 
     const bayarTunaiHeader = rawBayarTunai;
 
-    let bayarTunaiPiutang = rawBayarTunai;
+    let bayarTunaiPiutang = rawBayarTunai - nKembali - pundiAmal;
     if (bayarTunaiPiutang > nKembali && nKembali > 0) {
       bayarTunaiPiutang = bayarTunaiPiutang - nKembali;
     }
@@ -285,6 +288,13 @@ const saveInvoice = async (db, header, items, userKode, isNew) => {
       await connection.query(
         `INSERT INTO tpiutang_dtl (pd_ph_nomor, pd_tanggal, pd_uraian, pd_debet) VALUES (?, ?, 'Biaya Kirim', ?)`,
         [phNomor, tgl, bykirim],
+      );
+    }
+
+    if (pundiAmal > 0) {
+      await connection.query(
+        `INSERT INTO tpiutang_dtl (pd_ph_nomor, pd_tanggal, pd_uraian, pd_kredit) VALUES (?, ?, 'Pundi Amal', ?)`,
+        [phNomor, tgl, pundiAmal],
       );
     }
 
