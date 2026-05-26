@@ -146,27 +146,73 @@ const deleteInvoice = async (db, nomor) => {
 
 /**
  * Mengambil data lengkap untuk form edit
+/**
+ * Mengambil data lengkap untuk form edit
  */
 const loadFormData = async (db, nomor) => {
   const [headerRows] = await db.query(
-    `SELECT *, DATE_FORMAT(Inv_tanggal, '%Y-%m-%d') as Inv_tanggal FROM tinv_hdr WHERE Inv_nomor = ?`,
+    `SELECT 
+        h.*,
+        c.cus_nama,
+        DATE_FORMAT(h.Inv_tanggal, '%Y-%m-%d') AS Inv_tanggal
+     FROM tinv_hdr h
+     LEFT JOIN tcustomer c 
+       ON c.cus_kode = h.Inv_cus_kode
+     WHERE h.Inv_nomor = ?`,
     [nomor],
   );
 
-  if (headerRows.length === 0) throw new Error("Invoice tidak ditemukan.");
+  if (headerRows.length === 0) {
+    throw new Error("Invoice tidak ditemukan.");
+  }
 
   const [detailRows] = await db.query(
-    `SELECT d.*, 
-     TRIM(CONCAT(a.brg_jeniskaos, ' ', a.brg_tipe, ' ', a.brg_lengan, ' ', a.brg_jeniskain, ' ', a.brg_warna)) AS nama,
-     b.brgd_barcode as barcode
+    `SELECT 
+        d.invd_kode AS kode, 
+        b.brgd_barcode AS barcode,
+        TRIM(
+          CONCAT(
+            a.brg_jeniskaos, ' ',
+            a.brg_tipe, ' ',
+            a.brg_lengan, ' ',
+            a.brg_jeniskain, ' ',
+            a.brg_warna
+          )
+        ) AS nama,
+        d.invd_ukuran AS ukuran,
+        d.invd_jumlah AS jumlah,
+        d.invd_harga AS harga,
+        d.invd_diskon AS diskon,
+        (d.invd_jumlah * (d.invd_harga - d.invd_diskon)) AS total,
+
+        /* stok realtime */
+        IFNULL((
+          SELECT SUM(mst_stok_in - mst_stok_out)
+          FROM tmasterstok
+          WHERE mst_brg_kode = d.invd_kode
+            AND mst_ukuran = d.invd_ukuran
+            AND mst_aktif = 'Y'
+        ), 0) AS stok,
+
+        d.invd_hpp AS hpp
+
      FROM tinv_dtl d
-     LEFT JOIN tbarang a ON a.brg_kode = d.invd_kode
-     LEFT JOIN tbarang_dtl b ON b.brgd_kode = d.invd_kode AND b.brgd_ukuran = d.invd_ukuran
-     WHERE d.invd_inv_nomor = ?`,
+     LEFT JOIN tbarang a 
+       ON a.brg_kode = d.invd_kode
+
+     LEFT JOIN tbarang_dtl b 
+       ON b.brgd_kode = d.invd_kode
+      AND b.brgd_ukuran = d.invd_ukuran
+
+     WHERE d.invd_inv_nomor = ?
+     ORDER BY d.invd_nourut`,
     [nomor],
   );
 
-  return { header: headerRows[0], items: detailRows };
+  return {
+    header: headerRows[0],
+    items: detailRows,
+  };
 };
 
 /**
