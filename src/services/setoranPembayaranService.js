@@ -164,11 +164,14 @@ const fetchUnpaidInvoices = async (db, cusKode) => {
   const query = `
     SELECT * FROM (
       SELECT h.ph_inv_nomor AS Invoice, h.ph_tanggal AS TglInvoice, h.ph_nominal AS Nominal,
-             /* HANYA hitung kredit yang BUKAN diskon */
+             /* PERBAIKAN: Tambahkan filter agar diskon tidak dihitung sebagai pembayaran */
              (SELECT SUM(pd_kredit) FROM tpiutang_dtl 
-              WHERE pd_ph_nomor = h.ph_nomor AND pd_uraian NOT LIKE '%Diskon%') AS Bayar,
+              WHERE pd_ph_nomor = h.ph_nomor 
+              AND pd_uraian NOT LIKE '%Diskon%') AS Bayar,
              
-             (h.ph_nominal - IFNULL((SELECT SUM(pd_kredit) FROM tpiutang_dtl WHERE pd_ph_nomor = h.ph_nomor), 0)) AS Sisa
+             (h.ph_nominal - IFNULL((SELECT SUM(pd_kredit) FROM tpiutang_dtl 
+              WHERE pd_ph_nomor = h.ph_nomor 
+              AND pd_uraian NOT LIKE '%Diskon%'), 0)) AS Sisa
       FROM tpiutang_hdr h
       WHERE h.ph_cus_kode = ?
     ) X WHERE X.Sisa > 0 ORDER BY X.TglInvoice ASC`;
@@ -297,9 +300,11 @@ const fetchOneSetoran = async (db, nomor) => {
   const [detailRows] = await db.query(
     `SELECT d.sd_inv AS invoice, d.sd_bayar AS bayar, d.sd_ket AS ket, d.sd_angsur AS angsur,
             p.ph_tanggal AS tanggal, p.ph_nominal AS nominal,
-            /* HANYA hitung pembayaran yang bukan diskon untuk kolom terbayar_sebelumnya */
+            /* PERBAIKAN: Tambahkan filter AND pd_uraian NOT LIKE '%Diskon%' */
             (SELECT SUM(pd_kredit) FROM tpiutang_dtl 
-             WHERE pd_ph_nomor = p.ph_nomor AND pd_ket != ? AND pd_uraian NOT LIKE '%Diskon%') AS terbayar_sebelumnya
+             WHERE pd_ph_nomor = p.ph_nomor 
+             AND pd_ket != ? 
+             AND pd_uraian NOT LIKE '%Diskon%') AS terbayar_sebelumnya
      FROM tsetor_dtl d
      LEFT JOIN tpiutang_hdr p ON p.ph_inv_nomor = d.sd_inv
      WHERE d.sd_sh_nomor = ?`,
