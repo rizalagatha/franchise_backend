@@ -58,7 +58,7 @@ const fetchHeaders = async (db, startDate, endDate) => {
       /* Bayar adalah total kredit yang bukan diskon */
       IFNULL(v.kredit_bayar, 0) AS Bayar,
       /* Sisa = Piutang - Bayar Murni */
-      (COALESCE(u.ph_nominal, 0) - IFNULL(v.kredit_murni, 0)) AS SisaPiutang,
+      (COALESCE(u.ph_nominal, 0) - IFNULL(v.kredit_bayar, 0)) AS SisaPiutang,
       h.Inv_cus_kode AS KdCus,
       s.cus_nama AS Nama,
       h.inv_rptunai AS RpTunai,
