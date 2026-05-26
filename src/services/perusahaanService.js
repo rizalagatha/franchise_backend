@@ -1,9 +1,9 @@
-const { pool } = require("../config/database");
+// const { pool } = require("../config/database");
 
 /**
  * Mengambil daftar semua perusahaan/cabang
  */
-const getPerusahaanList = async () => {
+const getPerusahaanList = async (db) => {
   const query = `
     SELECT 
       perush_kode AS Kode, 
@@ -14,7 +14,8 @@ const getPerusahaanList = async () => {
     ORDER BY perush_nama ASC
   `;
 
-  const [rows] = await pool.query(query);
+  // Ubah pool.query menjadi db.query
+  const [rows] = await db.query(query);
   return rows;
 };
 

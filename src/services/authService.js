@@ -6,7 +6,7 @@ const loginUser = async (kodeUser, password) => {
   // 1. Cari user di Master Database beserta konfigurasi cabangnya
   // Sesuaikan nama kolom 'username'/'user_kode' dengan struktur tabel master kamu
   const queryUser = `
-    SELECT u.*, c.db_host, c.db_name, c.db_user, c.db_pass, c.nama_cabang 
+    SELECT u.*, c.kode_cabang, c.db_host, c.db_name, c.db_user, c.db_pass, c.nama_cabang 
     FROM users u
     LEFT JOIN cabang c ON u.cabang_id = c.id
     WHERE u.username = ? 
@@ -57,6 +57,7 @@ const loginUser = async (kodeUser, password) => {
       kode: user.username,
       nama: user.username, // Gunakan username sebagai nama, karena kolom nama_lengkap tidak ada
       cabang: user.cabang_id,
+      cabangKode: user.kode_cabang,
       cabangNama: user.nama_cabang,
       terms_accepted: user.terms_accepted,
     },

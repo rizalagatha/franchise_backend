@@ -2,7 +2,8 @@ const perusahaanService = require("../services/perusahaanService");
 
 const getPerusahaan = async (req, res) => {
   try {
-    const data = await perusahaanService.getPerusahaanList();
+    // Tambahkan req.db sebagai parameter
+    const data = await perusahaanService.getPerusahaanList(req.db);
     res.json(data);
   } catch (error) {
     console.error("Error getPerusahaan:", error);
