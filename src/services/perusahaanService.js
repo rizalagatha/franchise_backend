@@ -1,20 +1,17 @@
 // const { pool } = require("../config/database");
 
 /**
- * Mengambil daftar semua perusahaan/cabang
+ * Mengambil daftar semua perusahaan/cabang dari Master DB
  */
 const getPerusahaanList = async (db) => {
   const query = `
     SELECT 
-      perush_kode AS Kode, 
-      perush_nama AS Nama, 
-      perush_alamat AS Alamat, 
-      perush_kota AS Kota 
-    FROM tperusahaan 
-    ORDER BY perush_nama ASC
+      kode_cabang AS Kode, 
+      nama_cabang AS Nama 
+    FROM cabang 
+    ORDER BY nama_cabang ASC
   `;
 
-  // Mengeksekusi query menggunakan koneksi yang dikirim dari controller
   const [rows] = await db.query(query);
   return rows;
 };

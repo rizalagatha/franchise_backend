@@ -3,15 +3,11 @@ const { pool } = require("../config/database");
 
 const getPerusahaan = async (req, res) => {
   try {
-    // Cek apakah req.db tersedia dari middleware multi-tenant.
-    // Jika undefined, gunakan pool standar dari config.
-    const dbConnection = req.db || pool;
-
-    const data = await perusahaanService.getPerusahaanList(dbConnection);
+    // Gunakan pool (Master DB) secara eksplisit untuk mengambil list cabang
+    const data = await perusahaanService.getPerusahaanList(pool);
     res.json(data);
   } catch (error) {
     console.error("Error getPerusahaan:", error);
-    // Tambahkan error.message agar alasan crash bisa terbaca di frontend
     res.status(500).json({
       message: "Gagal memuat data perusahaan.",
       error: error.message,
@@ -22,7 +18,8 @@ const getPerusahaan = async (req, res) => {
 const saveData = async (req, res) => {
   try {
     const { data, isNew } = req.body;
-    const dbConnection = req.db || pool; // Gunakan fallback juga
+    // Untuk save data perusahaan, tetap gunakan koneksi dinamis (cabang)
+    const dbConnection = req.db || pool;
 
     const result = await perusahaanService.savePerusahaan(
       dbConnection,
