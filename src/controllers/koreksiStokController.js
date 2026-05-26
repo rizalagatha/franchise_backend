@@ -108,7 +108,7 @@ const getBarcodeLookup = async (req, res) => {
     const result = await koreksiStokService.lookupBarcodeKoreksi(
       req.db,
       barcode,
-      tanggal,
+      tanggal + " 23:59:59",
       nomor,
     );
     res.json(result);
@@ -122,24 +122,29 @@ const getBarcodeLookup = async (req, res) => {
  */
 const getF1Lookup = async (req, res) => {
   try {
-    const { term, page = 1, itemsPerPage = 10, tanggal } = req.query;
+    // TAMBAHKAN keyword di sini
+    const { term, keyword, page = 1, itemsPerPage = 10, tanggal } = req.query;
+
     if (!tanggal) {
       return res
         .status(400)
         .json({ message: "Tanggal diperlukan untuk cek stok." });
     }
 
+    // Gabungkan term atau keyword
+    const searchTerm = term || keyword || "";
+
     const pageNum = parseInt(page, 10);
     const limitNum = parseInt(itemsPerPage, 10);
 
     const result = await koreksiStokService.lookupF1Koreksi(
       req.db,
-      term,
-      tanggal,
+      searchTerm, // Gunakan searchTerm yang sudah digabung
+      tanggal + " 23:59:59", // <-- Trik jitu agar stok di hari yang sama terbaca full
       pageNum,
       limitNum,
     );
-    res.json(result); // Kirim { items, total }
+    res.json(result);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }

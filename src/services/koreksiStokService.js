@@ -138,7 +138,7 @@ const lookupBarcodeKoreksi = async (
   const [stokRows] = await db.query(
     `
         SELECT IFNULL(SUM(mst_stok_in - mst_stok_out), 0) AS stok FROM tmasterstok 
-        WHERE mst_aktif = 'Y' AND mst_brg_kode = ? AND mst_ukuran = ? AND mst_tanggal < ? 
+        WHERE mst_aktif = 'Y' AND mst_brg_kode = ? AND mst_ukuran = ? AND mst_tanggal <= ?
           AND mst_noreferensi LIKE CONCAT(?, '%')
     `,
     [item.kode, item.ukuran, tanggalKoreksi, branchPrefix],
@@ -176,7 +176,7 @@ const lookupF1Koreksi = async (db, term, tanggal, page, itemsPerPage) => {
   const dataQuery = `
         SELECT b.brgd_barcode AS barcode, b.brgd_kode AS kode, ${namaField} AS nama, b.brgd_ukuran AS ukuran, b.brgd_hpp AS hpp, 
             IFNULL((SELECT SUM(m.mst_stok_in - m.mst_stok_out) FROM tmasterstok m WHERE m.mst_aktif = 'Y' 
-                AND m.mst_brg_kode = b.brgd_kode AND m.mst_ukuran = b.brgd_ukuran AND m.mst_tanggal < ? 
+                AND m.mst_brg_kode = b.brgd_kode AND m.mst_ukuran = b.brgd_ukuran AND m.mst_tanggal <= ?
                 AND m.mst_noreferensi LIKE CONCAT(?, '%')), 0) AS stok
         FROM tbarang_dtl b INNER JOIN tbarang a ON a.brg_kode = b.brgd_kode ${where}
         ORDER BY nama, ukuran LIMIT ? OFFSET ?
@@ -198,18 +198,33 @@ const lookupF1Koreksi = async (db, term, tanggal, page, itemsPerPage) => {
 const saveKoreksi = async (db, header, items, userKode, isNew) => {
   const connection = await db.getConnection();
   await connection.beginTransaction();
+
   try {
     let nomor = header.nomor;
     const tgl = format(new Date(header.tanggal), "yyyy-MM-dd");
 
     if (isNew) {
-      // Logic generate nomor
-      const prefix = `KOR.${format(new Date(tgl), "yyMM")}`;
-      const [rows] = await connection.query(
-        "SELECT IFNULL(MAX(RIGHT(kor_nomor, 4)), 0) AS last FROM tkor_hdr WHERE LEFT(kor_nomor, 8) = ?",
-        [prefix],
+      // 1. Ambil Kode Cabang Asli (Misal: BYL, F03, dll)
+      const [perushRows] = await connection.query(
+        "SELECT perush_kode FROM tperusahaan LIMIT 1",
       );
-      nomor = `${prefix}.${String(parseInt(rows[0].last) + 1).padStart(4, "0")}`;
+      if (perushRows.length === 0) {
+        throw new Error("Data perusahaan belum diatur.");
+      }
+      const branchCode = perushRows[0].perush_kode;
+
+      // 2. Generate Nomor Koreksi (Contoh: BYL.KOR.2605.0001)
+      const yyMm = format(new Date(tgl), "yyMM");
+      const prefix = `${branchCode}.KOR.${yyMm}`;
+
+      const [rows] = await connection.query(
+        "SELECT MAX(RIGHT(kor_nomor, 4)) AS counter FROM tkor_hdr WHERE kor_nomor LIKE ?",
+        [`${prefix}%`],
+      );
+
+      const nextNum = parseInt(rows[0].counter || 0) + 1;
+      nomor = `${prefix}.${String(nextNum).padStart(4, "0")}`;
+
       await connection.query(
         "INSERT INTO tkor_hdr (kor_nomor, kor_tanggal, kor_ket, user_create, date_create) VALUES (?, ?, ?, ?, NOW())",
         [nomor, tgl, header.keterangan, userKode],
@@ -221,8 +236,7 @@ const saveKoreksi = async (db, header, items, userKode, isNew) => {
       );
     }
 
-    // PENTING: Karena ada trigger 'before_delete' di tkor_dtl,
-    // hapus detail ini otomatis akan membersihkan tmasterstok via trigger database.
+    // PENTING: Hapus detail lama untuk memicu trigger before_delete (membersihkan masterstok)
     await connection.query("DELETE FROM tkor_dtl WHERE kord_kor_nomor = ?", [
       nomor,
     ]);
@@ -234,7 +248,6 @@ const saveKoreksi = async (db, header, items, userKode, isNew) => {
       // HITUNG SELISIH (Kunci agar Trigger bekerja)
       const selisih = Number(item.jumlah) - Number(item.stok);
 
-      // PERBAIKAN: Hapus kord_nourut dari query INSERT dan array parameternya
       await connection.query(
         `INSERT INTO tkor_dtl (kord_kor_nomor, kord_kode, kord_ukuran, kord_stok, kord_jumlah, kord_selisih, kord_hpp, kord_ket) 
          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -244,7 +257,7 @@ const saveKoreksi = async (db, header, items, userKode, isNew) => {
           item.ukuran,
           item.stok,
           item.jumlah,
-          selisih,
+          selisih, // <- Jika + (fisik > sistem), trigger akan set stok_in positif. Jika - (fisik < sistem), stok_in negatif.
           item.hpp,
           item.keterangan || "",
         ],
