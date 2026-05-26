@@ -14,34 +14,24 @@ const getPerusahaanList = async (db) => {
     ORDER BY perush_nama ASC
   `;
 
-  // Ubah pool.query menjadi db.query
+  // Mengeksekusi query menggunakan koneksi yang dikirim dari controller
   const [rows] = await db.query(query);
   return rows;
 };
 
-const savePerusahaan = async (perusahaanData, isNew) => {
+const savePerusahaan = async (db, perusahaanData, isNew) => {
   const { Kode, Nama, Alamat, Kota } = perusahaanData;
 
-  // Validasi (from btnSimpanClick)
-  if (!Kode?.trim()) {
-    throw new Error("Kode Perusahaan tidak boleh kosong.");
-  }
-  if (!Nama?.trim()) {
-    throw new Error("Nama Perusahaan tidak boleh kosong.");
-  }
-  if (!Alamat?.trim()) {
-    throw new Error("Alamat Perusahaan tidak boleh kosong.");
-  }
-  if (!Kota?.trim()) {
-    throw new Error("Kota Perusahaan tidak boleh kosong.");
-  }
+  if (!Kode?.trim()) throw new Error("Kode Perusahaan tidak boleh kosong.");
+  if (!Nama?.trim()) throw new Error("Nama Perusahaan tidak boleh kosong.");
+  if (!Alamat?.trim()) throw new Error("Alamat Perusahaan tidak boleh kosong.");
+  if (!Kota?.trim()) throw new Error("Kota Perusahaan tidak boleh kosong.");
 
   let query = "";
   let params = [];
 
   if (isNew) {
-    // Cek duplikat (penting untuk mode 'Baru')
-    const [existing] = await pool.query(
+    const [existing] = await db.query(
       "SELECT 1 FROM tperusahaan WHERE perush_kode = ?",
       [Kode.trim()],
     );
@@ -49,18 +39,16 @@ const savePerusahaan = async (perusahaanData, isNew) => {
       throw new Error(`Kode perusahaan ${Kode} sudah ada.`);
     }
 
-    // Insert (Sesuai Delphi)
     query =
       "INSERT INTO tperusahaan (perush_kode, Perush_nama, Perush_alamat, Perush_kota) VALUES (?, ?, ?, ?)";
     params = [Kode.trim(), Nama.trim(), Alamat.trim(), Kota.trim()];
   } else {
-    // Update (Sesuai Delphi)
     query =
       "UPDATE tperusahaan SET perush_nama = ?, perush_alamat = ?, perush_kota = ? WHERE perush_kode = ?";
     params = [Nama.trim(), Alamat.trim(), Kota.trim(), Kode.trim()];
   }
 
-  const [result] = await pool.query(query, params);
+  const [result] = await db.query(query, params);
   if (result.affectedRows === 0) {
     throw new Error("Gagal menyimpan data, tidak ada baris yang terpengaruh.");
   }
