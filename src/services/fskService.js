@@ -183,7 +183,7 @@ const generateRekapData = async (db, tanggal, kasir) => {
     SELECT * FROM (
       /* 1. SETORAN KASIR TUNAI */
       SELECT 'SETORAN KASIR TUNAI' AS jenis, h.inv_tanggal AS tgltrf, h.inv_cus_kode AS kdcus, 
-             c.cus_nama AS nmcus, c.cus_alamat AS alamat, h.inv_nomor AS inv, h.inv_rptunai AS nominal
+             c.cus_nama AS nmcus, c.cus_alamat AS alamat, h.inv_nomor AS inv, (h.inv_rptunai - IFNULL(h.inv_kembalian, 0)) AS nominal
       FROM tinv_hdr h
       LEFT JOIN tcustomer c ON c.cus_kode = h.inv_cus_kode
       WHERE LEFT(h.inv_nomor, 3) = ? 

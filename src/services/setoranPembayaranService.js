@@ -143,7 +143,7 @@ const deleteSetoran = async (db, nomor) => {
  * Menghasilkan Nomor Setoran Otomatis
  */
 const generateNomorSTR = async (connection, branchCode, date) => {
-  const yyMm = format(new Date(date), "yymm");
+  const yyMm = format(new Date(date), "yyMM");
   const prefix = `${branchCode}.STR.${yyMm}.`;
 
   const [rows] = await connection.query(

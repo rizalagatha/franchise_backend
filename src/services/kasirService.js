@@ -234,8 +234,8 @@ const saveInvoice = async (db, header, items, userKode, isNew) => {
 
       await connection.query(
         `INSERT INTO tinv_hdr (inv_nomor, inv_tanggal, inv_cus_kode, inv_disc, inv_bkrm, 
-         inv_rptunai, inv_rpcard, inv_norek, inv_nosetor, inv_pundiamal, user_create, date_create) 
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         inv_rptunai, inv_kembalian, inv_rpcard, inv_norek, inv_nosetor, inv_pundiamal, user_create, date_create) 
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           nomorInv,
           tgl,
@@ -243,6 +243,7 @@ const saveInvoice = async (db, header, items, userKode, isNew) => {
           header.diskonGlobal,
           bykirim,
           bayarTunaiHeader,
+          nKembali,
           bayarCard,
           header.noRek,
           noSetor,
@@ -254,7 +255,7 @@ const saveInvoice = async (db, header, items, userKode, isNew) => {
     } else {
       await connection.query(
         `UPDATE tinv_hdr SET inv_cus_kode=?, inv_tanggal=?, inv_bkrm=?, inv_disc=?, 
-         inv_rptunai=?, inv_rpcard=?, inv_norek=?, inv_nosetor=?, inv_pundiamal=?, 
+         inv_rptunai=?, inv_kembalian=?, inv_rpcard=?, inv_norek=?, inv_nosetor=?, inv_pundiamal=?, 
          user_modified=?, date_modified=? WHERE inv_nomor=?`,
         [
           header.kdCus,
@@ -262,6 +263,7 @@ const saveInvoice = async (db, header, items, userKode, isNew) => {
           bykirim,
           header.diskonGlobal,
           bayarTunai,
+          nKembali,
           bayarCard,
           header.noRek,
           noSetor,
