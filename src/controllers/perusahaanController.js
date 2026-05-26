@@ -3,8 +3,16 @@ const { pool } = require("../config/database");
 
 const getPerusahaan = async (req, res) => {
   try {
-    // Gunakan pool (Master DB) secara eksplisit untuk mengambil list cabang
-    const data = await perusahaanService.getPerusahaanList(pool);
+    // Ambil ID cabang dan role dari token JWT user yang sedang login
+    // Berdasarkan authService kamu, strukturnya ada di req.user.cabang.id
+    const userCabangId = req.user.cabang.id || req.user.cabang;
+    const userRole = req.user.role;
+
+    const data = await perusahaanService.getPerusahaanList(
+      pool,
+      userCabangId,
+      userRole,
+    );
     res.json(data);
   } catch (error) {
     console.error("Error getPerusahaan:", error);

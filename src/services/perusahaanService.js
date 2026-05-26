@@ -1,18 +1,29 @@
 // const { pool } = require("../config/database");
 
 /**
- * Mengambil daftar semua perusahaan/cabang dari Master DB
+ * Mengambil daftar perusahaan/cabang dari Master DB (Berdasarkan Hak Akses)
  */
-const getPerusahaanList = async (db) => {
-  const query = `
+const getPerusahaanList = async (db, cabangId, role) => {
+  let query = `
     SELECT 
       kode_cabang AS Kode, 
       nama_cabang AS Nama 
     FROM cabang 
-    ORDER BY nama_cabang ASC
   `;
 
-  const [rows] = await db.query(query);
+  let params = [];
+
+  // Jika sistemmu memiliki role khusus untuk Pusat (misal: 'superadmin' atau 'pusat')
+  // yang boleh melihat semua cabang, kamu bisa menggunakan kondisi ini.
+  // Tapi secara default, kita paksa user hanya bisa melihat cabangnya sendiri:
+  if (role !== "superadmin") {
+    query += ` WHERE id = ? `;
+    params.push(cabangId);
+  }
+
+  query += ` ORDER BY nama_cabang ASC`;
+
+  const [rows] = await db.query(query, params);
   return rows;
 };
 
