@@ -55,7 +55,7 @@ const fetchHeaders = async (db, startDate, endDate) => {
       COALESCE(h.inv_disc, 0) AS Diskon,
       COALESCE(h.inv_bkrm, 0) AS BiayaKirim, 
       COALESCE(n.Nominal, 0) AS Nominal,
-      COALESCE(u.ph_nominal, 0) AS Piutang,
+      COALESCE(n.Nominal, 0) AS Piutang,
       COALESCE(v.kredit, 0) AS Bayar,
       CASE 
         WHEN (COALESCE(v.debet, 0) - COALESCE(v.kredit, 0)) < 0 THEN 0 
@@ -88,7 +88,9 @@ const fetchHeaders = async (db, startDate, endDate) => {
     LEFT JOIN tpiutang_hdr u ON u.ph_inv_nomor = h.inv_nomor AND u.ph_cus_kode = h.Inv_cus_kode
     LEFT JOIN (
       /* Menghitung akumulasi pembayaran piutang */
-      SELECT pd_ph_nomor, SUM(pd_debet) AS debet, SUM(pd_kredit) AS kredit 
+      SELECT pd_ph_nomor, 
+             SUM(pd_debet) AS debet, 
+             SUM(CASE WHEN pd_uraian LIKE '%Diskon%' THEN 0 ELSE pd_kredit END) AS kredit 
       FROM tpiutang_dtl 
       GROUP BY pd_ph_nomor
     ) v ON v.pd_ph_nomor = u.ph_nomor
