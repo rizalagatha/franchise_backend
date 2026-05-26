@@ -50,51 +50,33 @@ const fetchHeaders = async (db, startDate, endDate) => {
     SELECT 
       h.Inv_nomor AS Nomor,
       h.Inv_tanggal AS Tanggal,
-      h.inv_disc AS Diskon,
-      h.inv_bkrm AS BiayaKirim,
       COALESCE(h.inv_disc, 0) AS Diskon,
       COALESCE(h.inv_bkrm, 0) AS BiayaKirim, 
       COALESCE(n.Nominal, 0) AS Nominal,
       COALESCE(n.Nominal, 0) AS Piutang,
-      COALESCE(v.kredit, 0) AS Bayar,
-      CASE 
-        WHEN (COALESCE(v.debet, 0) - COALESCE(v.kredit, 0)) < 0 THEN 0 
-        ELSE (COALESCE(v.debet, 0) - COALESCE(v.kredit, 0)) 
-      END AS SisaPiutang,
+      /* Pastikan di sini hanya menghitung yang bukan diskon */
+      IFNULL(v.kredit, 0) AS Bayar,
+      (COALESCE(n.Nominal, 0) - IFNULL(v.kredit, 0)) AS SisaPiutang,
       h.Inv_cus_kode AS KdCus,
       s.cus_nama AS Nama,
-      s.cus_alamat AS Alamat,
-      s.cus_kota AS Kota,
-      s.cus_telp AS Telp,
       h.inv_rptunai AS RpTunai,
       h.inv_rpcard AS RpCard,
-      h.inv_nosetor AS NoSetoran,
-      h.inv_norek AS NoRekening,
-      r.rek_namabank AS NamaBank,
-      h.user_create AS Created,
-      h.date_create AS Date_Create
+      h.user_create AS Created
     FROM tinv_hdr h
     LEFT JOIN (
       SELECT dd.invd_inv_nomor, 
-             /* Fix: Gunakan COALESCE pada setiap komponen perhitungan */
-             ROUND(SUM(COALESCE(dd.invd_jumlah, 0) * (COALESCE(dd.invd_harga, 0) - COALESCE(dd.invd_diskon, 0))) 
-             - COALESCE(hh.inv_disc, 0) + COALESCE(hh.inv_bkrm, 0)) AS Nominal
+             ROUND(SUM(dd.invd_jumlah * (dd.invd_harga - dd.invd_diskon)) - hh.inv_disc + hh.inv_bkrm) AS Nominal
       FROM tinv_dtl dd 
       LEFT JOIN tinv_hdr hh ON hh.inv_nomor = dd.invd_inv_nomor 
       GROUP BY dd.invd_inv_nomor
     ) n ON n.invd_inv_nomor = h.Inv_nomor
     LEFT JOIN tcustomer s ON s.cus_kode = h.Inv_cus_kode
-    /* Relasi ke tabel piutang untuk melacak sisa tagihan */
-    LEFT JOIN tpiutang_hdr u ON u.ph_inv_nomor = h.inv_nomor AND u.ph_cus_kode = h.Inv_cus_kode
+    LEFT JOIN tpiutang_hdr u ON u.ph_inv_nomor = h.inv_nomor
     LEFT JOIN (
-      /* Menghitung akumulasi pembayaran piutang */
       SELECT pd_ph_nomor, 
-             SUM(pd_debet) AS debet, 
              SUM(CASE WHEN pd_uraian LIKE '%Diskon%' THEN 0 ELSE pd_kredit END) AS kredit 
-      FROM tpiutang_dtl 
-      GROUP BY pd_ph_nomor
+      FROM tpiutang_dtl GROUP BY pd_ph_nomor
     ) v ON v.pd_ph_nomor = u.ph_nomor
-    LEFT JOIN trekening r ON r.rek_nomor = h.inv_norek
     WHERE h.Inv_tanggal BETWEEN ? AND ?
     ORDER BY h.Inv_nomor ASC
   `;
